@@ -13,6 +13,12 @@ Welcome to the *OpenLDAP docker setup* ! This project provides a streamlined way
 
 ## Getting started
 
+### Notes
+
+- You must change all passwords
+- For *phpldapadmin* and *self-service-password*, service accounts have been created and ACLs have been configured
+- To login to *phpldapadmin*, the user "cn=admin,ou=users,dc=example,dc=org" is required with this configuration. So use the user `admin` and the password `admin`
+
 ### Prerequisites
 
 - docker
