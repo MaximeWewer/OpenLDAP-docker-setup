@@ -1,0 +1,12 @@
+dn: cn=admin,ou=groups,dc=example,dc=org
+objectClass: groupOfNames
+cn: admin
+description: Admin group
+member: cn=admin,ou=users,dc=example,dc=org
+
+dn: cn=demo,ou=groups,dc=example,dc=org
+objectClass: groupOfNames
+cn: demo
+description: demo
+member: cn=user1.name,ou=users,dc=example,dc=org
+member: cn=user2.name,ou=users,dc=example,dc=org

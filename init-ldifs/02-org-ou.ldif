@@ -1,0 +1,15 @@
+dn: ou=users,dc=example,dc=org
+objectClass: organizationalUnit
+ou: users
+
+dn: ou=groups,dc=example,dc=org
+objectClass: organizationalUnit
+ou: groups
+
+dn: ou=service-accounts,dc=example,dc=org
+objectClass: organizationalUnit
+ou: service-accounts
+
+dn: ou=policies,dc=example,dc=org
+objectClass: organizationalUnit
+ou: policies

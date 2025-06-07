@@ -1,0 +1,75 @@
+services:
+
+  openldap:
+    image: bitnami/openldap:2.6.10
+    container_name: openldap
+    hostname: openldap
+    restart: always
+    ports:
+      - 389:1389
+      - 636:1636
+    environment:
+      # https://github.com/bitnami/containers/tree/main/bitnami/openldap#configuration
+      - LDAP_ROOT=dc=example,dc=org
+      - LDAP_ADMIN_USERNAME=admin
+      - LDAP_ADMIN_PASSWORD=adminpassword
+      - LDAP_CONFIG_ADMIN_ENABLED=yes
+      - LDAP_CONFIG_ADMIN_USERNAME=adminconfig
+      - LDAP_CONFIG_ADMIN_PASSWORD=adminpasswordconfig
+      - LDAP_SKIP_DEFAULT_TREE=yes
+      - LDAP_EXTRA_SCHEMAS=dyngroup,cosine,inetorgperson,nis
+      - LDAP_ENABLE_TLS=yes
+      - LDAP_REQUIRE_TLS=no
+      - LDAP_TLS_CERT_FILE=/opt/bitnami/openldap/certs/openldap.crt
+      - LDAP_TLS_KEY_FILE=/opt/bitnami/openldap/certs/openldap.key
+      - LDAP_TLS_CA_FILE=/opt/bitnami/openldap/certs/openldapCA.crt
+    volumes:
+      - ./certs:/opt/bitnami/openldap/certs
+      - ./data:/bitnami/openldap
+    logging:
+      driver: json-file
+      options:
+        "max-size": "10m"
+        "max-file": "5"
+
+  phpldapadmin:
+    image: phpldapadmin/phpldapadmin:2.1.3
+    container_name: phpldapadmin
+    hostname: phpldapadmin
+    restart: always
+    ports:
+      - 8080:8080
+    environment:
+      # https://github.com/leenooks/phpLDAPadmin/wiki/Configuration-Variables
+      # docker run -it --rm phpldapadmin/phpldapadmin ./artisan key:generate --show
+      - APP_KEY=base64:QyPrQb0gZEn+9kkBfBXzc2Io8JH6ajsiSvWJCgIfeMg=
+      - APP_TIMEZONE=Europe/Paris
+      - APP_URL=http://localhost:8080
+      - LDAP_HOST=openldap
+      - LDAP_PORT=1389
+      - LDAP_BASE_DN=dc=example,dc=org
+      - LDAP_USERNAME=cn=phpldapadmin,ou=service-accounts,dc=example,dc=org
+      - LDAP_PASSWORD=phpldapadmin
+      - LDAP_LOGIN_ATTR=uid
+      - LDAP_LOGIN_ATTR_DESC=Username
+    logging:
+      driver: json-file
+      options:
+        "max-size": "10m"
+        "max-file": "5"
+
+  selfservice-password:
+    image: ltbproject/self-service-password:1.7.3
+    container_name: selfservice-password
+    hostname: selfservice-password
+    ports:
+      - 8088:80
+    depends_on:
+      - openldap
+    volumes:
+      - ./ssp.conf.php:/var/www/conf/config.inc.local.php
+    logging:
+      driver: json-file
+      options:
+        "max-size": "10m"
+        "max-file": "5"

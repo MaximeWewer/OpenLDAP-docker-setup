@@ -1,0 +1,47 @@
+dn: cn=admin,ou=users,dc=example,dc=org
+objectClass: inetOrgPerson
+objectClass: posixAccount
+objectClass: shadowAccount
+cn: admin
+uid: admin
+sn: admin
+givenName: admin
+displayName: admin
+mail: admin@exemple.org
+uidNumber: 1000
+gidNumber: 1000
+homeDirectory: /home/admin
+loginShell: /bin/bash
+userPassword: admin
+
+dn: cn=user1.name,ou=users,dc=example,dc=org
+objectClass: inetOrgPerson
+objectClass: posixAccount
+objectClass: shadowAccount
+cn: user1.name
+uid: user1.name
+sn: Name
+givenName: User1
+displayName: User1 Name
+mail: user1.name@exemple.org
+uidNumber: 1000
+gidNumber: 1000
+homeDirectory: /home/user1.name
+loginShell: /bin/bash
+userPassword: user1.name
+
+dn: cn=user2.name,ou=users,dc=example,dc=org
+objectClass: inetOrgPerson
+objectClass: posixAccount
+objectClass: shadowAccount
+cn: user2.name
+uid: user2.name
+sn: Name
+givenName: User2
+displayName: User2 Name
+mail: user2.name@exemple.org
+uidNumber: 1000
+gidNumber: 1000
+homeDirectory: /home/user2.name
+loginShell: /bin/bash
+userPassword: user2.name

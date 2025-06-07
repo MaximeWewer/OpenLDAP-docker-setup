@@ -1,0 +1,19 @@
+dn: olcDatabase={2}mdb,cn=config
+changetype: modify
+add: olcAccess
+olcAccess: {0}to attrs=userPassword
+  by self write
+  by anonymous auth
+  by * none
+olcAccess: {1}to attrs=shadowLastChange
+  by self write
+  by * read
+olcAccess: {2}to dn.subtree="dc=example,dc=org"
+  by self write
+  by dn.exact="cn=admin,ou=users,dc=example,dc=org" write
+  by dn.exact="cn=ssp,ou=service-accounts,dc=example,dc=org" write
+  by dn.exact="cn=phpldapadmin,ou=service-accounts,dc=example,dc=org" read
+  by users read
+  by * none
+olcAccess: {3}to dn.subtree="ou=policies,dc=example,dc=org"
+  by * read
