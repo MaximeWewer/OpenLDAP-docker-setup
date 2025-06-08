@@ -17,7 +17,7 @@ Welcome to the *OpenLDAP docker setup* ! This project provides a streamlined way
 
 - You must change all passwords
 - For *phpldapadmin* and *self-service-password*, service accounts have been created and ACLs have been configured
-- To login to *phpldapadmin*, the user "cn=admin,ou=users,dc=example,dc=org" is required with this configuration. So use the user `admin` and the password `admin`
+- To login to *phpldapadmin*, the user `cn=admin,ou=users,dc=example,dc=org` is required with this configuration. Therefore, use the user `admin` and the password `admin`
 
 ### Prerequisites
 
@@ -229,7 +229,7 @@ Servers: `ldap://IP_or_FQDN:389` (adjust for LDAPS)
 
 BaseDn: `dc=example,dc=org`
 
-BindDn: `cn=admin,ou=users,dc=example,dc=org` You could create service-account with right ACL instead of using *cn=admin,ou=users*
+BindDn: `cn=admin,ou=users,dc=example,dc=org` You could create service-account with right ACL instead of using `cn=admin,ou=users,dc=example,dc=org`
 
 BindPassword: `admin_PASSWORD`
 
