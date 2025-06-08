@@ -223,7 +223,7 @@ ldapsearch -x -H ldap://localhost:389 -D "cn=phpldapadmin,ou=service-accounts,dc
 
 ## Use OpenLDAP as users catalog for IAM solution (ex: Zitadel)
 
-**Connection settings**
+- **Connection settings**
 
 Servers: `ldap://IP_or_FQDN:389` (adjust for LDAPS)
 
@@ -233,7 +233,7 @@ BindDn: `cn=admin,ou=users,dc=example,dc=org` You could create service-account w
 
 BindPassword: `admin_PASSWORD`
 
-**User binding settings**
+- **User binding settings**
 
 User binding: `cn`
 
@@ -241,7 +241,7 @@ User filter: `uid`
 
 User object `classes: inetOrgPerson`
 
-**LDAP attributes**
+- **LDAP attributes**
 
 ID attribute: `uid`
 
