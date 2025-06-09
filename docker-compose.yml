@@ -52,6 +52,8 @@ services:
       - LDAP_PASSWORD=phpldapadmin
       - LDAP_LOGIN_ATTR=uid
       - LDAP_LOGIN_ATTR_DESC=Username
+    depends_on:
+      - openldap
     logging:
       driver: json-file
       options:
@@ -62,6 +64,7 @@ services:
     image: ltbproject/self-service-password:1.7.3
     container_name: selfservice-password
     hostname: selfservice-password
+    restart: always
     ports:
       - 8088:80
     depends_on:
