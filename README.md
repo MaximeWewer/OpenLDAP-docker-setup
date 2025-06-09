@@ -94,6 +94,48 @@ ldapsearch -x -H ldap://localhost:389 -D "cn=adminconfig,cn=config" -w "admincon
 
 ---
 
+## Backup & restore
+
+It is highly recommended to save LDIF files on an encrypted partition, as they contain sensitive information, including passwords.
+Also, ensure that only authorized users have access to these files by setting appropriate permissions on the relevant machines.
+
+- **Backup - config**
+
+```bash
+docker exec openldap bash -c "slapcat -b "cn=config" -F /bitnami/openldap/slapd.d/ > /backup/config_$(date +%Y%m%d).ldif"
+```
+
+- **Backup - data**
+
+```bash
+docker exec openldap bash -c "slapcat -b 'dc=example,dc=org' -F /bitnami/openldap/slapd.d/ > /backup/data/data_$(date +%Y%m%d).ldif"
+```
+
+- **Restore - config**
+
+```bash
+docker compose down
+rm -R ./data/slap.d/*
+docker run --rm -v ./data:/bitnami/openldap -v ./backup:/backup bitnami/openldap:2.6.10 bash -c 'slapadd -b "cn=config" -F /bitnami/openldap/slapd.d/ -l /backup/config_DATE.ldif'
+docker compose up -d
+```
+
+- **Restore - data**
+
+```bash
+docker exec openldap bash -c "slapadd -b 'dc=example,dc=org' -F /bitnami/openldap/slapd.d/ -l /backup/data_DATE.ldif"
+```
+
+### Cronjob
+
+```bash
+# Daily backup of LDAP configuration and data at 10 p.m.
+0 22 * * * docker exec openldap bash -c "slapcat -b 'cn=config' -F /bitnami/openldap/slapd.d/ > /backup/config_\$(date +\%Y\%m\%d).ldif"
+0 22 * * * docker exec openldap bash -c "slapcat -b 'dc=example,dc=org' -F /bitnami/openldap/slapd.d/ > /backup/data_\$(date +\%Y\%m\%d).ldif"
+```
+
+---
+
 ## Administration scripts
 
 This project includes several administration scripts to manage users, groups, and service accounts in your OpenLDAP setup. These scripts are designed to simplify common tasks such as creating users, changing passwords, and managing groups.

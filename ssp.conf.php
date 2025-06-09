@@ -2,15 +2,14 @@
 ### Doc : https://self-service-password.readthedocs.io/en/latest/config_ldap.html 
 
 # LDAP connection
-$ldap_url = "ldap://openldap:1389";
+$ldap_url = "ldap://openldap:1389"; # If ldaps : $ldap_url = "ldaps://localhost";
+// $ldap_starttls = true;
+// putenv("LDAPTLS_REQCERT=allow");
+// putenv("LDAPTLS_CACERT=/etc/ssl/certs/ca-certificates.crt");
 $ldap_binddn = "cn=ssp,ou=service-accounts,dc=example,dc=org";
 $ldap_bindpw = "ssp";
 $ldap_base = "dc=example,dc=org";
 $ldap_login_attribute = "uid";
-# If LDAPS is required
-// $ldap_starttls = true;
-// putenv("LDAPTLS_REQCERT=allow");
-// putenv("LDAPTLS_CACERT=/etc/ssl/certs/ca-certificates.crt");
 
 ### Doc : https://self-service-password.readthedocs.io/en/latest/config_general.html
 # General config

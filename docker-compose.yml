@@ -18,13 +18,14 @@ services:
       - LDAP_CONFIG_ADMIN_PASSWORD=adminpasswordconfig
       - LDAP_SKIP_DEFAULT_TREE=yes
       - LDAP_EXTRA_SCHEMAS=dyngroup,cosine,inetorgperson,nis
-      - LDAP_ENABLE_TLS=yes
-      - LDAP_REQUIRE_TLS=no
-      - LDAP_TLS_CERT_FILE=/opt/bitnami/openldap/certs/openldap.crt
-      - LDAP_TLS_KEY_FILE=/opt/bitnami/openldap/certs/openldap.key
-      - LDAP_TLS_CA_FILE=/opt/bitnami/openldap/certs/openldapCA.crt
+      # - LDAP_ENABLE_TLS=yes
+      # - LDAP_REQUIRE_TLS=no
+      # - LDAP_TLS_CERT_FILE=/opt/bitnami/openldap/certs/openldap.crt
+      # - LDAP_TLS_KEY_FILE=/opt/bitnami/openldap/certs/openldap.key
+      # - LDAP_TLS_CA_FILE=/opt/bitnami/openldap/certs/openldapCA.crt
     volumes:
-      - ./certs:/opt/bitnami/openldap/certs
+      # - ./certs:/opt/bitnami/openldap/certs
+      - ./backup:/backup
       - ./data:/bitnami/openldap
     logging:
       driver: json-file
@@ -33,7 +34,7 @@ services:
         "max-file": "5"
 
   phpldapadmin:
-    image: phpldapadmin/phpldapadmin:2.1.3
+    image: phpldapadmin/phpldapadmin:2.1.4
     container_name: phpldapadmin
     hostname: phpldapadmin
     restart: always
@@ -46,7 +47,8 @@ services:
       - APP_TIMEZONE=Europe/Paris
       - APP_URL=http://localhost:8080
       - LDAP_HOST=openldap
-      - LDAP_PORT=1389
+      - LDAP_CONNECTION=ldap # ldap/ldaps/starttls
+      - LDAP_PORT=1389 # Or 1636 if ldaps
       - LDAP_BASE_DN=dc=example,dc=org
       - LDAP_USERNAME=cn=phpldapadmin,ou=service-accounts,dc=example,dc=org
       - LDAP_PASSWORD=phpldapadmin
