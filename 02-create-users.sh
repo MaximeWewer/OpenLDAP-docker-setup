@@ -52,7 +52,7 @@ for user in "${USER_LIST[@]}"; do
   full_name="$cap_first $cap_last"
 
   # Generate a random password
-  PASSWORD=$(pwgen -s 24 1)
+  PASSWORD=$(pwgen -s -y 32 1)
 
   # Append to CSV
   CSV_OUTPUT+=$'\n'"$user,$PASSWORD"

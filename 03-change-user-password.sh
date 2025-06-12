@@ -25,7 +25,7 @@ USERNAME="$1"
 USER_DN="cn=$USERNAME,$USERS_OU"
 
 # === Generate new password ===
-NEW_PASSWORD=$(pwgen -s 24 1)
+NEW_PASSWORD=$(pwgen -s -y 32 1)
 
 # === Create temporary LDIF to modify password ===
 TMP_LDIF=$(mktemp)

@@ -22,7 +22,7 @@ if [ -z "$1" ]; then
 fi
 
 ACCOUNT_NAME="$1"
-NEW_PASSWORD=$(pwgen -s 24 1)
+NEW_PASSWORD=$(pwgen -s -y 32 1)
 
 TMP_LDIF=$(mktemp)
 cat <<EOF > "$TMP_LDIF"

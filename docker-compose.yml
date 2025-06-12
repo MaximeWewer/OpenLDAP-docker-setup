@@ -24,8 +24,8 @@ services:
       # - LDAP_TLS_KEY_FILE=/opt/bitnami/openldap/certs/openldap.key
       # - LDAP_TLS_CA_FILE=/opt/bitnami/openldap/certs/openldapCA.crt
     volumes:
-      # - ./certs:/opt/bitnami/openldap/certs
       - ./backup:/backup
+      - ./certs:/opt/bitnami/openldap/certs
       - ./data:/bitnami/openldap
     logging:
       driver: json-file

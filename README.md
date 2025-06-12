@@ -30,7 +30,7 @@ Welcome to the *OpenLDAP docker setup* ! This project provides a streamlined way
 
 - **Generate certificates (optional)**
 
-If you want to use LDAPS, generate the certificates by running the following command:
+If you want to use StartTLS / LDAPS, generate the certificates by running the following command:
 
 ```bash
 bash 00-certs.sh
@@ -94,10 +94,32 @@ ldapsearch -x -H ldap://localhost:389 -D "cn=adminconfig,cn=config" -w "admincon
 
 ---
 
+## StartTLS / LDAPS
+
+To use TLS connection, you need to :
+
+- Enable TLS in *docker-compose.yml*, uncomment these lines :
+
+```yaml
+# - LDAP_ENABLE_TLS=yes
+# - LDAP_REQUIRE_TLS=no
+# - LDAP_TLS_CERT_FILE=/opt/bitnami/openldap/certs/openldap.crt
+# - LDAP_TLS_KEY_FILE=/opt/bitnami/openldap/certs/openldap.key
+# - LDAP_TLS_CA_FILE=/opt/bitnami/openldap/certs/openldapCA.crt
+```
+
+- Set the **CA cert** path as an environment variable: `export LDAPTLS_CACERT=PATH_CERT_CA`
+
+**StartTLS** : `LDAPTLS_REQCERT=never ldapsearch -x -ZZ -H ldap://localhost:389 -D "cn=admin,dc=example,dc=org" -w "adminpassword" -b "dc=example,dc=org"`
+
+**LDAPS** : `LDAPTLS_REQCERT=never ldapsearch -x -H ldaps://localhost:636 -D "cn=admin,dc=example,dc=org" -w "adminpassword" -b "dc=example,dc=org"`
+
+---
+
 ## Backup & restore
 
 It is highly recommended to save LDIF files on an encrypted partition, as they contain sensitive information, including passwords.
-Also, ensure that only authorized users have access to these files by setting appropriate permissions on the relevant machines.
+Also, ensure that only authorized users have access to these files by setting appropriate permission on the host.
 
 - **Backup - config**
 
@@ -108,7 +130,7 @@ docker exec openldap bash -c "slapcat -b "cn=config" -F /bitnami/openldap/slapd.
 - **Backup - data**
 
 ```bash
-docker exec openldap bash -c "slapcat -b 'dc=example,dc=org' -F /bitnami/openldap/slapd.d/ > /backup/data/data_$(date +%Y%m%d).ldif"
+docker exec openldap bash -c "slapcat -b 'dc=example,dc=org' -F /bitnami/openldap/slapd.d/ > /backup/data_$(date +%Y%m%d).ldif"
 ```
 
 - **Restore - config**
@@ -130,8 +152,8 @@ docker exec openldap bash -c "slapadd -b 'dc=example,dc=org' -F /bitnami/openlda
 
 ```bash
 # Daily backup of LDAP configuration and data at 10 p.m.
-0 22 * * * docker exec openldap bash -c "slapcat -b 'cn=config' -F /bitnami/openldap/slapd.d/ > /backup/config_\$(date +\%Y\%m\%d).ldif"
-0 22 * * * docker exec openldap bash -c "slapcat -b 'dc=example,dc=org' -F /bitnami/openldap/slapd.d/ > /backup/data_\$(date +\%Y\%m\%d).ldif"
+0 22 * * * docker exec openldap bash -c "slapcat -b 'cn=config' -F /bitnami/openldap/slapd.d/ > /backup/config_$(date +\%Y\%m\%d).ldif"
+0 22 * * * docker exec openldap bash -c "slapcat -b 'dc=example,dc=org' -F /bitnami/openldap/slapd.d/ > /backup/data_$(date +\%Y\%m\%d).ldif"
 ```
 
 ---
@@ -140,7 +162,7 @@ docker exec openldap bash -c "slapadd -b 'dc=example,dc=org' -F /bitnami/openlda
 
 This project includes several administration scripts to manage users, groups, and service accounts in your OpenLDAP setup. These scripts are designed to simplify common tasks such as creating users, changing passwords, and managing groups.
 
-For password creation or modification, a `pwgen 24` is performed to generate a secure password, and print in stdout.
+For password creation or modification, a `pwgen -s -y 32 1` is performed to generate a secure password, and print in stdout.
 
 ### Scripts overview
 
@@ -190,7 +212,7 @@ bash 05-create-groups.sh groupName user1.name user2.name
 
 - **Add service account**
 
-To add a service account, use the `06-add-service-account.sh` script followed by the service account name.
+To add a service account and set its ACLs, use the `06-add-service-account.sh` script followed by the service account name.
 
 ```bash
 bash 06-add-service-account.sh serviceAccountName

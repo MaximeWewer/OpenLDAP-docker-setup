@@ -1,26 +1,93 @@
 #!/bin/bash
 
-# Directory where certificates will be stored
+# Default values
 CERT_DIR="$PWD/certs"
+OVERWRITE_CERTS="no"
+REGEN_CA="no"
+REGEN_LDAP_CERTS="no"
+CN="openldap.local"
+SAN="DNS:openldap.local,IP:127.0.0.1"
 
-# Create the directory if it doesn't exist
+# === Usage ===
+usage() {
+  echo "Usage: $0 [--overwrite yes|no] [--regen-ca yes|no] [--regen-ldap-certs yes|no]"
+  exit 1
+}
+
+# === Parse CLI arguments ===
+while [[ $# -gt 0 ]]; do
+  case $1 in
+    --overwrite)
+      case "$2" in
+        yes|no) OVERWRITE_CERTS="$2" ;;
+        *) echo "Invalid --overwrite value: $2"; usage ;;
+      esac
+      shift ;;
+    --regen-ca)
+      case "$2" in
+        yes|no) REGEN_CA="$2" ;;
+        *) echo "Invalid --regen-ca value: $2"; usage ;;
+      esac
+      shift ;;
+    --regen-ldap-certs)
+      case "$2" in
+        yes|no) REGEN_LDAP_CERTS="$2" ;;
+        *) echo "Invalid --regen-ldap-certs value: $2"; usage ;;
+      esac
+      shift ;;
+    *) echo "Unknown option: $1"; usage ;;
+  esac
+  shift
+done
+
+# Paths
+CA_KEY_PATH="$CERT_DIR/openldapCA.key"
+CA_CERT_PATH="$CERT_DIR/openldapCA.crt"
+LDAP_KEY_PATH="$CERT_DIR/openldap.key"
+LDAP_CRT_PATH="$CERT_DIR/openldap.crt"
+CSR_PATH="$CERT_DIR/openldap.csr"
+OPENSSL_CNF="$CERT_DIR/openssl.cnf"
+
+# Generate certificates only if overwrite=yes or certs don't exist
 mkdir -p "$CERT_DIR"
 
-# Generate the private key and the Certificate Authority (CA) certificate
-openssl req -new -x509 -nodes -keyout "$CERT_DIR/openldapCA.key" -out "$CERT_DIR/openldapCA.crt" -days 1095 -subj "/CN=ldap-ca"
+if [[ "$REGEN_CA" == "yes" || "$OVERWRITE_CERTS" == "yes" || ! -f "$CA_CERT_PATH" ]]; then
+  echo "Generating CA certificate..."
+  openssl req -new -x509 -nodes -days 1095 -keyout "$CA_KEY_PATH" -out "$CA_CERT_PATH" -subj "/CN=OpenLDAP-CA"
+  chmod 644 "$CA_CERT_PATH"
+fi
 
-# Generate the private key for the LDAP server
-openssl genrsa -out "$CERT_DIR/openldap.key" 2048
+if [[ "$REGEN_LDAP_CERTS" == "yes" || "$OVERWRITE_CERTS" == "yes" || ! -f "$LDAP_CRT_PATH" || ! -f "$LDAP_KEY_PATH" ]]; then
+  echo "Generating OpenLDAP certificates..."
+  openssl genrsa -out "$LDAP_KEY_PATH" 2048
 
-# Create a Certificate Signing Request (CSR)
-openssl req -new -key "$CERT_DIR/openldap.key" -out "$CERT_DIR/openldap.csr" -subj "/CN=ldap"
+  # Generate CSR with SAN
+  cat > "$OPENSSL_CNF" <<EOF
+[ req ]
+distinguished_name = req_distinguished_name
+req_extensions = v3_req
+prompt = no
 
-# Sign the CSR using the CA
-openssl x509 -req -in "$CERT_DIR/openldap.csr" -CA "$CERT_DIR/openldapCA.crt" -CAkey "$CERT_DIR/openldapCA.key" -CAcreateserial -out "$CERT_DIR/openldap.crt" -days 365
+[ req_distinguished_name ]
+CN = $CN
 
-# Set appropriate permissions
-chmod 600 "$CERT_DIR/openldap.key"
-chmod 644 "$CERT_DIR/openldap.crt"
-chmod 644 "$CERT_DIR/openldapCA.crt"
+[ v3_req ]
+keyUsage = critical, digitalSignature, keyEncipherment
+extendedKeyUsage = serverAuth
+subjectAltName = $SAN
+EOF
+
+  openssl req -new -key "$LDAP_KEY_PATH" -out "$CSR_PATH" -config "$OPENSSL_CNF"
+  openssl x509 -req -in "$CSR_PATH" -CA "$CA_CERT_PATH" -CAkey "$CA_KEY_PATH" -CAcreateserial -out "$LDAP_CRT_PATH" -days 365 -extensions v3_req -extfile "$OPENSSL_CNF"
+
+  chmod 600 "$LDAP_KEY_PATH"
+  chmod 644 "$LDAP_CRT_PATH"
+fi
+
+# Configure permissions for the openldap container
+sudo chown -R 1001:1001 $CERT_DIR
+
+# Cleanup
+rm -f "$CSR_PATH" "$OPENSSL_CNF"
 
 echo "Certificates have been generated and stored in $CERT_DIR"
