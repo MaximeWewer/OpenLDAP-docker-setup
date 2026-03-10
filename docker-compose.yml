@@ -1,3 +1,7 @@
+networks:
+  ldap-internal:
+    driver: bridge
+
 services:
   openldap:
     image: cleanstart/openldap:2.6.12
@@ -71,7 +75,3 @@ services:
       options:
         "max-size": "10m"
         "max-file": "5"
-
-networks:
-  ldap-internal:
-    driver: bridge
