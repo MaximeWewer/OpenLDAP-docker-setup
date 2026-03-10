@@ -1,0 +1,17 @@
+dn: cn=defaultppolicy,ou=policies,dc=example,dc=org
+objectClass: pwdPolicy
+objectClass: person
+cn: defaultppolicy
+sn: default password policy
+pwdAttribute: userPassword
+pwdMaxAge: 31536000
+pwdExpireWarning: 604800
+pwdInHistory: 5
+pwdMinLength: 16
+pwdCheckQuality: 1
+pwdLockout: TRUE
+pwdLockoutDuration: 1800
+pwdMaxFailure: 3
+pwdMustChange: TRUE
+pwdAllowUserChange: TRUE
+pwdSafeModify: FALSE

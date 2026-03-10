@@ -1,32 +1,21 @@
 services:
-
   openldap:
-    image: bitnami/openldap:2.6.10
+    image: cleanstart/openldap:2.6.12
     container_name: openldap
     hostname: openldap
     restart: always
     ports:
-      - 389:1389
-      - 636:1636
-    environment:
-      # https://github.com/bitnami/containers/tree/main/bitnami/openldap#configuration
-      - LDAP_ROOT=dc=example,dc=org
-      - LDAP_ADMIN_USERNAME=admin
-      - LDAP_ADMIN_PASSWORD=adminpassword
-      - LDAP_CONFIG_ADMIN_ENABLED=yes
-      - LDAP_CONFIG_ADMIN_USERNAME=adminconfig
-      - LDAP_CONFIG_ADMIN_PASSWORD=adminpasswordconfig
-      - LDAP_SKIP_DEFAULT_TREE=yes
-      - LDAP_EXTRA_SCHEMAS=dyngroup,cosine,inetorgperson,nis
-      # - LDAP_ENABLE_TLS=yes
-      # - LDAP_REQUIRE_TLS=no
-      # - LDAP_TLS_CERT_FILE=/opt/bitnami/openldap/certs/openldap.crt
-      # - LDAP_TLS_KEY_FILE=/opt/bitnami/openldap/certs/openldap.key
-      # - LDAP_TLS_CA_FILE=/opt/bitnami/openldap/certs/openldapCA.crt
+      - 389:389
+      - 636:636
     volumes:
       - ./backup:/backup
-      - ./certs:/opt/bitnami/openldap/certs
-      - ./data:/bitnami/openldap
+      - ./certs:/etc/openldap/certs
+      - ./data/slapd.d:/etc/openldap/slapd.d
+      - ./data/openldap-data:/var/lib/openldap/openldap-data
+    # Uncomment for TLS support:
+    # command: ["slapd", "-u", "ldap", "-g", "ldap", "-h", "ldap:// ldaps://", "-d", "64"]
+    networks:
+      - ldap-internal
     logging:
       driver: json-file
       options:
@@ -34,7 +23,7 @@ services:
         "max-file": "5"
 
   phpldapadmin:
-    image: phpldapadmin/phpldapadmin:2.2.2
+    image: phpldapadmin/phpldapadmin:2.3.9
     container_name: phpldapadmin
     hostname: phpldapadmin
     restart: always
@@ -48,7 +37,7 @@ services:
       - APP_URL=http://localhost:8080
       - LDAP_HOST=openldap
       - LDAP_CONNECTION=ldap # ldap/ldaps/starttls
-      - LDAP_PORT=1389 # Or 1636 if ldaps
+      - LDAP_PORT=389 # Or 636 if ldaps
       - LDAP_BASE_DN=dc=example,dc=org
       - LDAP_USERNAME=cn=phpldapadmin,ou=service-accounts,dc=example,dc=org
       - LDAP_PASSWORD=phpldapadmin
@@ -56,6 +45,8 @@ services:
       - LDAP_LOGIN_ATTR_DESC=Username
     depends_on:
       - openldap
+    networks:
+      - ldap-internal
     logging:
       driver: json-file
       options:
@@ -73,8 +64,14 @@ services:
       - openldap
     volumes:
       - ./ssp.conf.php:/var/www/conf/config.inc.local.php
+    networks:
+      - ldap-internal
     logging:
       driver: json-file
       options:
         "max-size": "10m"
         "max-file": "5"
+
+networks:
+  ldap-internal:
+    driver: bridge

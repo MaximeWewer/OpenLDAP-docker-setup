@@ -1,326 +1,327 @@
 # OpenLDAP docker setup
 
-Welcome to the *OpenLDAP docker setup* ! This project provides a streamlined way to deploy an **[OpenLDAP](https://github.com/bitnami/containers/tree/main/bitnami/openldap)** server along with **[phpLDAPadmin](https://github.com/leenooks/phpLDAPadmin)** and **[self-service-password](https://github.com/ltb-project/self-service-password)** interfaces. It is designed to simplify the setup and management of an LDAP environment, making it accessible for both development and production use.
+A streamlined way to deploy an **[OpenLDAP](https://openldap.org/)** server along with **[phpLDAPadmin](https://github.com/leenooks/phpLDAPadmin)** and **[Self Service Password](https://github.com/ltb-project/self-service-password)** using Docker Compose. Built on the minimal [cleanstart/openldap](https://hub.docker.com/r/cleanstart/openldap) image (OpenLDAP 2.6).
 
 ## Key features
 
-- **Easy deployment**: With Docker Compose, you can quickly set up an OpenLDAP server, phpLDAPadmin, and self-service-password interfaces.
-- **Secure communication**: Supports LDAPS for secure communication between clients and the server.
-- **Pre-configured modules**: Includes modules for *dynamic lists*, *memberOf*, *referential integrity* and *password policies*.
-- **Service accounts**: Dedicated organizational unit for service accounts with customizable access rights.
-- **Administration scripts**: Includes scripts for managing users, groups, and service accounts.
-- **LDIF-based schema configuration**: The schema is configured using LDIF files located in the `init-ldif` directory, so avoid using OpenLDAP environment variables for schema creation.
+- **Minimal image**: Uses `cleanstart/openldap` — no shell, no bootstrap scripts, full control via `slapadd`
+- **Secure by default**: Least-privilege ACLs per OU, SSHA-hashed rootDN passwords, ECDSA P-384 TLS certificates, isolated Docker network
+- **Pre-configured overlays**: memberof, referential integrity, password policy, dynamic lists
+- **Service accounts**: Dedicated OU with per-account ACL injection via scripts
+- **POSIX optional**: POSIX support (posixAccount/shadowAccount) available via opt-in flag
+- **Administration scripts**: Manage users, groups, and service accounts from the command line
+
+## Architecture
+
+```
+dc=example,dc=org
+  |-- ou=users                 # User accounts (inetOrgPerson)
+  |-- ou=groups                # Groups (groupOfNames)
+  |-- ou=service-accounts      # Service accounts (phpldapadmin, ssp, custom)
+  |-- ou=policies              # Password policies
+```
+
+### ACL matrix (least privilege)
+
+| Identity         | userPassword | service-accounts | users | groups | policies | base DN |
+| ---------------- | ------------ | ---------------- | ----- | ------ | -------- | ------- |
+| self             | write        | -                | write | -      | -        | -       |
+| admin (ou=users) | write        | write            | write | write  | read     | write   |
+| ssp              | write        | -                | -     | -      | read     | -       |
+| phpldapadmin     | -            | -                | read  | read   | read     | -       |
+| anonymous        | auth only    | -                | -     | -      | read     | read    |
+
+Users and applications that need read access to `ou=users` or `ou=groups` must use a dedicated service account (see [Service accounts](#service-accounts)).
 
 ## Getting started
 
-### Notes
-
-- You must change all passwords
-- For *phpldapadmin* and *self-service-password*, service accounts have been created and ACLs have been configured
-- To login to *phpldapadmin*, the user `cn=admin,ou=users,dc=example,dc=org` is required with this configuration. Therefore, use the user `admin` and the password `admin`
-
 ### Prerequisites
 
-- docker
-- docker compose
-- ldap-utils
-- pwgen
+- Docker & Docker Compose
+- `ldap-utils` (`ldapsearch`, `ldapadd`, `ldapmodify`, `ldapdelete`)
+- `pwgen`
 
 ### Installation
 
-- **Generate certificates (optional)**
-
-If you want to use StartTLS / LDAPS, generate the certificates by running the following command:
+1. **Generate certificates** (optional, for TLS)
 
 ```bash
 bash 00-certs.sh
 ```
 
-- **Start the Docker containers**
+2. **Run the setup**
 
-Launch the Docker Compose setup with the following command:
-
-```bash
-docker compose up -d
-```
-
-- **Run the initial setup**
-
-Execute the initial setup script to configure the OpenLDAP server:
+This bootstraps the configuration via `slapadd`, loads initial data, and starts the containers:
 
 ```bash
 bash 01-setup.sh
 ```
 
-Once the setup is complete, you can manage the LDAP server using *ldapmodify* or *ldapadd* commands.
-
----
-
-## LDAP commands
-
-Here are some useful LDAP commands to help you manage your OpenLDAP server:
-
-- **List data**
-
-To list data under dc=example,dc=org, use:
+To reinitialize from scratch:
 
 ```bash
-ldapsearch -x -H ldap://localhost:389 -D "cn=admin,dc=example,dc=org" -w "admin_PASSWORD" -b "dc=example,dc=org"
+bash 01-setup.sh --reset
 ```
 
-- **Add a resource**
+3. **Access the services**
 
-To add a resource using ldapmodify, use:
+| Service               | URL                    | Default login                                           |
+| --------------------- | ---------------------- | ------------------------------------------------------- |
+| OpenLDAP              | `ldap://localhost:389` | `cn=admin,ou=users,dc=example,dc=org` / `adminpassword` |
+| phpLDAPadmin          | http://localhost:8080  | `admin` / `adminpassword`                               |
+| Self Service Password | http://localhost:8088  | Any LDAP user                                           |
+
+> **Important**: Change all default passwords before production use.
+
+## Project structure
+
+```
+.
+|-- common.sh                             # Shared configuration and helpers
+|-- 00-certs.sh                           # TLS certificate generation (ECDSA P-384)
+|-- 01-setup.sh                           # Bootstrap and start (slapadd + docker compose)
+|-- 02-create-users.sh                    # Create users [--group=name] [--posix]
+|-- 03-change-user-password.sh            # Change user password
+|-- 04-delete-users.sh                    # Delete users (+ group cleanup)
+|-- 05-create-group.sh                    # Create group with members
+|-- 06-add-service-account.sh             # Create service account + inject ACL
+|-- 07-change-service-account-password.sh # Change service account password
+|-- 08-delete-service-account.sh          # Delete service account + cleanup ACL
+|-- docker-compose.yml
+|-- ssp.conf.php                          # Self Service Password configuration
+|-- init-config/
+|   |-- slapd-config.ldif                 # Full cn=config (modules, schemas, ACLs, overlays)
+|-- init-ldifs/
+|   |-- 01-base.ldif                      # Base DN
+|   |-- 02-org-ou.ldif                    # Organizational units
+|   |-- 03-users.ldif                     # Default users
+|   |-- 04-service-accounts.ldif          # phpldapadmin & ssp accounts
+|   |-- 05-groups.ldif                    # Default groups
+|   |-- 06-default-ppolicy.ldif           # Password policy
+|-- certs/                                # TLS certificates
+|-- data/                                 # Persistent data (slapd.d + MDB)
+|-- backup/                               # Backup directory
+```
+
+## Administration scripts
+
+All scripts source `common.sh` for shared configuration (`set -euo pipefail`, LDAP connection, helpers). Passwords are never passed via `-w` on the command line (uses `-y` with temp files). Temp files are cleaned up on exit via `trap`.
+
+All scripts use `cn=admin,ou=users,dc=example,dc=org` (subject to ACLs, not the rootDN).
+
+Passwords are generated with `pwgen -s -y -r '#<>\ "'"'"' 32` (32 chars, symbols, LDIF-safe).
+
+### Create users
+
+Usernames must follow the `firstname.lastname` pattern. The script auto-populates `cn`, `sn`, `givenName`, `displayName`, and `mail`.
 
 ```bash
-ldapmodify -x -a -H ldap://localhost:389 -D "cn=admin,dc=example,dc=org" -w "admin_PASSWORD" -f CUSTOM_FILE.ldif
+# Standard (inetOrgPerson only)
+bash 02-create-users.sh john.doe jane.smith --group=demo
+
+# With POSIX attributes (requires nis schema enabled in slapd-config.ldif)
+bash 02-create-users.sh john.doe jane.smith --group=demo --posix
 ```
 
-- **List modules**
-
-To list the available modules, use:
+### Change user password
 
 ```bash
-ldapsearch -x -s one -H ldap://localhost:389 -D "cn=adminconfig,cn=config" -w "adminconfig_PASSWORD" -b cn=config "(objectClass=olcModuleList)" olcModuleLoad -LLL
+bash 03-change-user-password.sh john.doe
 ```
 
-- **Search for configuration**
+### Delete users
 
-To search for specific configurations, use the following command:
+Automatically removes the user from all groups before deletion:
 
 ```bash
-ldapsearch -x -H ldap://localhost:389 -D "cn=adminconfig,cn=config" -w "adminconfig_PASSWORD" -b "olcDatabase={2}mdb,cn=config" olcAccess
+bash 04-delete-users.sh john.doe jane.smith
 ```
 
----
+### Create group
 
-## StartTLS / LDAPS
+At least one member is required (`groupOfNames` schema constraint):
 
-To use TLS connection, you need to :
+```bash
+bash 05-create-group.sh groupName john.doe jane.smith
+```
 
-- Enable TLS in *docker-compose.yml*, uncomment these lines :
+### Service accounts
+
+Create a service account with specific access rights. The script creates the account in `ou=service-accounts` and injects the access rule into the existing ACL for the target subtree:
+
+```bash
+# Read access to ou=users
+bash 06-add-service-account.sh gitea --access read --subtree "ou=users,dc=example,dc=org"
+
+# Write access to ou=groups
+bash 06-add-service-account.sh myapp --access write --subtree "ou=groups,dc=example,dc=org"
+```
+
+Change password:
+
+```bash
+bash 07-change-service-account-password.sh gitea
+```
+
+Delete (also cleans up ACL references):
+
+```bash
+bash 08-delete-service-account.sh gitea
+```
+
+## POSIX support
+
+POSIX attributes (`posixAccount`, `shadowAccount`, `uidNumber`, `gidNumber`, `homeDirectory`, `loginShell`) are **disabled by default**.
+
+To enable POSIX support, uncomment these lines in `init-config/slapd-config.ldif` before running `01-setup.sh`:
+
+```ldif
+# Schema
+#include: file:///etc/openldap/schema/nis.ldif
+
+# Index
+#olcDbIndex: uidNumber,gidNumber eq
+
+# ACL (insert as {1}, shift subsequent indexes)
+#olcAccess: {1}to attrs=shadowLastChange by self write by * read
+```
+
+Then use `--posix` when creating users:
+
+```bash
+bash 02-create-users.sh john.doe --posix
+```
+
+## TLS / LDAPS
+
+1. Generate certificates:
+
+```bash
+bash 00-certs.sh
+```
+
+2. Uncomment the TLS command in `docker-compose.yml`:
 
 ```yaml
-# - LDAP_ENABLE_TLS=yes
-# - LDAP_REQUIRE_TLS=no
-# - LDAP_TLS_CERT_FILE=/opt/bitnami/openldap/certs/openldap.crt
-# - LDAP_TLS_KEY_FILE=/opt/bitnami/openldap/certs/openldap.key
-# - LDAP_TLS_CA_FILE=/opt/bitnami/openldap/certs/openldapCA.crt
+command: ["slapd", "-u", "ldap", "-g", "ldap", "-h", "ldap:// ldaps://", "-d", "64"]
 ```
 
-- Set the **CA cert** path as an environment variable: `export LDAPTLS_CACERT=PATH_CERT_CA`
+3. Add TLS configuration to `slapd-config.ldif` (in the `olcDatabase={1}mdb` or `cn=config` section) and update `ssp.conf.php` / phpLDAPadmin env vars accordingly.
 
-**StartTLS** : `LDAPTLS_REQCERT=never ldapsearch -x -ZZ -H ldap://localhost:389 -D "cn=admin,dc=example,dc=org" -w "adminpassword" -b "dc=example,dc=org"`
+4. Test:
 
-**LDAPS** : `LDAPTLS_REQCERT=never ldapsearch -x -H ldaps://localhost:636 -D "cn=admin,dc=example,dc=org" -w "adminpassword" -b "dc=example,dc=org"`
+```bash
+# StartTLS
+LDAPTLS_CACERT=./certs/openldapCA.crt ldapsearch -x -ZZ -H ldap://localhost:389 -D "cn=admin,ou=users,dc=example,dc=org" -w "adminpassword" -b "dc=example,dc=org"
 
----
+# LDAPS
+LDAPTLS_CACERT=./certs/openldapCA.crt ldapsearch -x -H ldaps://localhost:636 -D "cn=admin,ou=users,dc=example,dc=org" -w "adminpassword" -b "dc=example,dc=org"
+```
 
 ## Backup & restore
 
-It is highly recommended to save LDIF files on an encrypted partition, as they contain sensitive information, including passwords.
-Also, ensure that only authorized users have access to these files by setting appropriate permission on the host.
+> Store backup files on an encrypted partition — they contain password hashes.
 
-- **Backup - config**
+### Backup
 
-```bash
-docker exec openldap bash -c "slapcat -b "cn=config" -F /bitnami/openldap/slapd.d/ > /backup/config_$(date +%Y%m%d).ldif"
-```
-
-- **Backup - data**
+Since `cleanstart/openldap` has no shell, backups are done by copying the data directory:
 
 ```bash
-docker exec openldap bash -c "slapcat -b 'dc=example,dc=org' -F /bitnami/openldap/slapd.d/ > /backup/data_$(date +%Y%m%d).ldif"
+# Config backup
+docker run --rm -v ./data/slapd.d:/slapd.d:ro -v ./backup:/backup alpine:latest \
+  sh -c "tar czf /backup/config_$(date +%Y%m%d).tar.gz -C /slapd.d ."
+
+# Data backup
+docker run --rm -v ./data/openldap-data:/data:ro -v ./backup:/backup alpine:latest \
+  sh -c "tar czf /backup/data_$(date +%Y%m%d).tar.gz -C /data ."
 ```
 
-- **Restore - config**
+### Restore
 
 ```bash
 docker compose down
-rm -R ./data/slap.d/*
-docker run --rm -v ./data:/bitnami/openldap -v ./backup:/backup bitnami/openldap:2.6.10 bash -c 'slapadd -b "cn=config" -F /bitnami/openldap/slapd.d/ -l /backup/config_DATE.ldif'
+
+# Clean existing data
+docker run --rm -v ./data:/data alpine:latest sh -c "rm -rf /data/slapd.d/* /data/openldap-data/*"
+
+# Restore config
+docker run --rm -v ./data/slapd.d:/slapd.d -v ./backup:/backup alpine:latest \
+  sh -c "tar xzf /backup/config_DATE.tar.gz -C /slapd.d"
+
+# Restore data
+docker run --rm -v ./data/openldap-data:/data -v ./backup:/backup alpine:latest \
+  sh -c "tar xzf /backup/data_DATE.tar.gz -C /data"
+
+# Fix permissions
+docker run --rm -v ./data/slapd.d:/slapd.d -v ./data/openldap-data:/data alpine:latest \
+  sh -c "chown -R 101:102 /slapd.d /data"
+
 docker compose up -d
-```
-
-- **Restore - data**
-
-```bash
-docker exec openldap bash -c "slapadd -b 'dc=example,dc=org' -F /bitnami/openldap/slapd.d/ -l /backup/data_DATE.ldif"
 ```
 
 ### Cronjob
 
 ```bash
-# Daily backup of LDAP configuration and data at 10 p.m.
-0 22 * * * docker exec openldap bash -c "slapcat -b 'cn=config' -F /bitnami/openldap/slapd.d/ > /backup/config_$(date +\%Y\%m\%d).ldif"
-0 22 * * * docker exec openldap bash -c "slapcat -b 'dc=example,dc=org' -F /bitnami/openldap/slapd.d/ > /backup/data_$(date +\%Y\%m\%d).ldif"
+# Daily backup at 10 PM
+0 22 * * * cd /path/to/OpenLDAP-docker-setup && docker run --rm -v ./data/slapd.d:/slapd.d:ro -v ./backup:/backup alpine:latest sh -c "tar czf /backup/config_$(date +\%Y\%m\%d).tar.gz -C /slapd.d ."
+0 22 * * * cd /path/to/OpenLDAP-docker-setup && docker run --rm -v ./data/openldap-data:/data:ro -v ./backup:/backup alpine:latest sh -c "tar czf /backup/data_$(date +\%Y\%m\%d).tar.gz -C /data ."
 ```
 
----
-
-## Administration scripts
-
-This project includes several administration scripts to manage users, groups, and service accounts in your OpenLDAP setup. These scripts are designed to simplify common tasks such as creating users, changing passwords, and managing groups.
-
-For password creation or modification, a `pwgen -s -y 32 1` is performed to generate a secure password, and print in stdout.
-
-### Scripts overview
-
-- `02-create-users.sh`: Creates one or more users in the LDAP directory. You can optionally specify a group to which the users will be added.
-- `03-change-user-password.sh`: Changes the password for a specified user.
-- `04-delete-users.sh`: Deletes one or more users from the LDAP directory and removes them from any groups they belong to.
-- `05-create-group.sh`: Creates a group and optionally adds members to it.
-- `06-add-service-account.sh`: Adds a new service account to the LDAP directory.
-- `07-change-service-account-password.sh`: Changes the password for a specified service account.
-- `08-delete-service-account.sh`: Deletes a service account from the LDAP directory.
-
-### Usage examples
-
-- **Create users**
-
-To create users, use the `02-create-users.sh` script followed by the usernames. Optionally, you can specify a group with the `--group` option. Password generation is done automatically.
-
-**Note:** Usernames must follow the pattern `firstname.lastname` (e.g., `john.doe`). This format is required because the script splits the username to automatically populate the `cn`, `sn`, `displayName`, and other LDAP attributes.
+## LDAP commands reference
 
 ```bash
-bash 02-create-users.sh user1.name user2.name --group=groupName
+# List all entries
+ldapsearch -x -H ldap://localhost:389 -D "cn=admin,ou=users,dc=example,dc=org" -w "adminpassword" -b "dc=example,dc=org"
+
+# List modules
+ldapsearch -x -H ldap://localhost:389 -D "cn=adminconfig,cn=config" -w "adminpasswordconfig" \
+  -b cn=config "(objectClass=olcModuleList)" olcModuleLoad -LLL
+
+# View ACLs
+ldapsearch -x -H ldap://localhost:389 -D "cn=adminconfig,cn=config" -w "adminpasswordconfig" \
+  -b "olcDatabase={1}mdb,cn=config" olcAccess -LLL
+
+# Test service account access
+ldapsearch -x -H ldap://localhost:389 -D "cn=gitea,ou=service-accounts,dc=example,dc=org" -w "PASSWORD" \
+  -b "ou=users,dc=example,dc=org" "(uid=john.doe)" cn mail
 ```
 
-- **Change user password**
+## Integration example (Zitadel, Gitea, etc.)
 
-To change a user's password, use the `03-change-user-password.sh` script followed by the username.
+Create a dedicated service account instead of using the admin account:
 
 ```bash
-bash 03-change-user-password.sh user1.name
+bash 06-add-service-account.sh myapp --access read --subtree "ou=users,dc=example,dc=org"
 ```
 
-- **Delete users**
+Then configure your application with:
 
-To delete users, use the `04-delete-users.sh` script followed by the usernames.
+| Setting           | Value                                            |
+| ----------------- | ------------------------------------------------ |
+| Server            | `ldap://IP_or_FQDN:389`                          |
+| Base DN           | `dc=example,dc=org`                              |
+| Bind DN           | `cn=myapp,ou=service-accounts,dc=example,dc=org` |
+| Bind Password     | _(generated by the script)_                      |
+| User filter       | `(uid=%s)`                                       |
+| User object class | `inetOrgPerson`                                  |
+| ID attribute      | `uid`                                            |
+| Display name      | `displayName`                                    |
+| Email             | `mail`                                           |
+| First name        | `givenName`                                      |
+| Last name         | `sn`                                             |
 
-```bash
-bash 04-delete-users.sh user1.name user2.name
-```
+## Password policy
 
-- **Create group**
+The default password policy (`cn=defaultppolicy,ou=policies`) enforces:
 
-To create a group, use the `05-create-groups.sh` script followed by the group name and optional members.
-
-```bash
-bash 05-create-groups.sh groupName user1.name user2.name
-```
-
-- **Add service account**
-
-To add a service account and set its ACLs, use the `06-add-service-account.sh` script followed by the service account name.
-
-```bash
-bash 06-add-service-account.sh serviceAccountName
-```
-
-- **Change service account password**
-
-To change a service account's password, use the `07-change-service-account-password.sh` script followed by the service account name.
-
-```bash
-bash 07-change-service-account-password.sh serviceAccountName
-```
-
-- **Delete service account**
-
-To delete a service account, use the `08-delete-service-account.sh` script followed by the service account name.
-
-```bash
-bash 08-delete-service-account.sh serviceAccountName
-```
-
-These scripts provide a convenient way to manage your LDAP directory and can be customized further to fit your specific requirements.
-
----
-
-## Module configuration examples
-
-### Enable and configure ppolicy module (done in 01-setup.sh)
-
-To enable and configure the ppolicy module, use the following commands:
-
-```bash
-ldapmodify -x -a -H ldap://localhost:389 -D "cn=adminconfig,cn=config" -w "adminconfig_PASSWORD" -f ppolicy-module/01-enable-ppolicy-module.ldif
-```
-
-```bash
-ldapadd -x -H ldap://localhost:389 -D "cn=admin,dc=example,dc=org" -w "admin_PASSWORD" -f ppolicy-module/02-default-ppolicy.ldif
-```
-
-```bash
-ldapmodify -x -a -H ldap://localhost:389 -D "cn=adminconfig,cn=config" -w "adminconfig_PASSWORD" -f ppolicy-module/03-overlay-ppolicy-module.ldif
-```
-
----
-
-## Service accounts
-
-Service accounts are located in the ou=service-accounts organizational unit. After creating a service account, you need to define its access rights using an LDIF file. Here is an example:
-
-```ldif
-dn: olcDatabase={2}mdb,cn=config
-changetype: modify
-add: olcAccess
-olcAccess: {X}to dn.subtree="ou=users,dc=example,dc=org"
-  by dn.exact="cn=phpldapadmin,ou=service-accounts,dc=example,dc=org" read
-  by * none
-```
-
-Apply the LDIF file using the following command:
-
-```bash
-ldapmodify -x -a -H ldap://localhost:389 -D "cn=adminconfig,cn=config" -w "adminconfig_PASSWORD" -f CUSTOM_FILE.ldif
-```
-
-You can test the access rights with a command like this:
-
-```bash
-ldapsearch -x -H ldap://localhost:389 -D "cn=phpldapadmin,ou=service-accounts,dc=example,dc=org" -w "phpldapadmin_PASSWORD" -b "ou=users,dc=example,dc=org" "(memberOf=cn=demo,ou=groups,dc=example,dc=org)"
-```
-
----
-
-## Use OpenLDAP as users catalog for IAM solution (ex: Zitadel)
-
-- **Connection settings**
-
-Servers: `ldap://IP_or_FQDN:389` (adjust for LDAPS)
-
-BaseDn: `dc=example,dc=org`
-
-BindDn: `cn=admin,ou=users,dc=example,dc=org` You could create service-account with right ACL instead of using `cn=admin,ou=users,dc=example,dc=org`
-
-BindPassword: `admin_PASSWORD`
-
-- **User binding settings**
-
-User binding: `cn`
-
-User filter: `uid`
-
-User object `classes: inetOrgPerson`
-
-- **LDAP attributes**
-
-ID attribute: `uid`
-
-Displayname attribute: `displayName`
-
-Email attribute: `mail`
-
-Given name attribute: `givenName`
-
-Family name attribute: `sn`
-
-Nickname attribute: `givenName`
-
----
-
-## Conclusion
-
-This setup provides a robust and flexible LDAP environment that can be easily integrated with other systems and applications. Enjoy managing your LDAP server with ease !
+| Rule                       | Value                   |
+| -------------------------- | ----------------------- |
+| Minimum length             | 16 characters           |
+| Quality check              | Enabled                 |
+| Max age                    | 365 days                |
+| Expiry warning             | 7 days before           |
+| History                    | 5 passwords             |
+| Lockout after              | 3 failed attempts       |
+| Lockout duration           | 30 minutes              |
+| Must change on first login | Yes                     |
+| Cleartext passwords        | Auto-hashed server-side |

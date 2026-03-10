@@ -1,18 +1,10 @@
 #!/bin/bash
-
-# === LDAP Configuration Variables ===
-LDAP_HOST="localhost"
-LDAP_PORT="389"
-BASE_DN="dc=example,dc=org"
-USERS_OU="ou=users,$BASE_DN"
-GROUPS_OU="ou=groups,$BASE_DN"
-LOCAL_ADMIN="admin"
-LOCAL_ADMIN_PASS="adminpassword"
-LOCAL_ADMIN_DN="cn=$LOCAL_ADMIN,$BASE_DN"
+source "$(dirname "$0")/common.sh"
 
 # === Argument Check ===
-if [ "$#" -lt 1 ]; then
-  echo "Usage: $0 groupName [group1 group2 ...]"
+if [ "$#" -lt 2 ]; then
+  echo "Usage: $0 groupName member1.name [member2.name ...]"
+  echo "At least one member is required (groupOfNames constraint)."
   exit 1
 fi
 
@@ -20,9 +12,20 @@ GROUP_NAME="$1"
 shift
 MEMBERS=("$@")
 
+ADMIN_PASSFILE=$(make_passfile "$LOCAL_ADMIN_PASS")
+
+# === Verify all members exist ===
+for member in "${MEMBERS[@]}"; do
+  MEMBER_DN="cn=$member,$USERS_OU"
+  if ! user_exists "$MEMBER_DN"; then
+    echo "Error: User '$member' does not exist."
+    exit 1
+  fi
+done
+
 echo "Creating group: $GROUP_NAME"
 
-TMP_LDIF=$(mktemp)
+TMP_LDIF=$(make_tmpfile)
 
 # === LDIF for group creation ===
 cat <<EOF > "$TMP_LDIF"
@@ -31,18 +34,11 @@ objectClass: groupOfNames
 cn: $GROUP_NAME
 EOF
 
-# === Add initial members (at least one is required for groupOfNames) ===
-if [ "${#MEMBERS[@]}" -eq 0 ]; then
-  # No members provided → add a dummy DN just to pass schema requirement
-  echo "member: cn=dummy,$USERS_OU" >> "$TMP_LDIF"
-else
-  for member in "${MEMBERS[@]}"; do
-    echo "member: cn=$member,$USERS_OU" >> "$TMP_LDIF"
-  done
-fi
+for member in "${MEMBERS[@]}"; do
+  echo "member: cn=$member,$USERS_OU" >> "$TMP_LDIF"
+done
 
 # === Apply LDIF to LDAP ===
-ldapadd -x -H ldap://$LDAP_HOST:$LDAP_PORT -D "$LOCAL_ADMIN_DN" -w "$LOCAL_ADMIN_PASS" -f "$TMP_LDIF"
-rm -f "$TMP_LDIF"
+ldapadd -x -H "ldap://$LDAP_HOST:$LDAP_PORT" -D "$LOCAL_ADMIN_DN" -y "$ADMIN_PASSFILE" -f "$TMP_LDIF"
 
 echo "Group $GROUP_NAME created with ${#MEMBERS[@]} member(s)."

@@ -1,48 +1,95 @@
 #!/bin/bash
+set -euo pipefail
 
-# === LDAP configuration variables ===
-LDAP_HOST="localhost"
-LDAP_PORT="389"
+# === Configuration ===
+# We source common.sh for shared variables but override what's needed
+source "$(dirname "$0")/common.sh"
 
-BASE_DN="dc=example,dc=org"
+IMAGE="$OPENLDAP_IMAGE"
+SLAPD_DIR="./data/slapd.d"
+DATA_DIR="./data/openldap-data"
 
-# Admin account for LDAP database (data management)
-LOCAL_ADMIN="cn=admin,${BASE_DN}"
-LOCAL_ADMIN_PASS="adminpassword"
+VOLUMES=(
+  -v "$(pwd)/data/slapd.d:/etc/openldap/slapd.d"
+  -v "$(pwd)/data/openldap-data:/var/lib/openldap/openldap-data"
+)
 
-# Admin account for LDAP configuration
-CONFIG_ADMIN="cn=adminconfig,cn=config"
-CONFIG_ADMIN_PASS="adminpasswordconfig"
+# === Check for clean state ===
+if [ -d "$SLAPD_DIR" ] && [ "$(ls -A $SLAPD_DIR 2>/dev/null)" ]; then
+  if [[ "${1:-}" == "--reset" ]]; then
+    echo "Resetting existing data..."
+    docker compose down 2>/dev/null || true
+    docker run --rm -v "$(pwd)/data:/data" alpine:latest sh -c "rm -rf /data/slapd.d/* /data/openldap-data/*"
+  else
+    echo "Error: $SLAPD_DIR is not empty."
+    echo "Run './01-setup.sh --reset' to wipe and reinitialize."
+    exit 1
+  fi
+fi
 
-# Base commands
-LDAPMODIFY_DATA="ldapmodify -x -a -H ldap://${LDAP_HOST}:${LDAP_PORT} -D $LOCAL_ADMIN -w $LOCAL_ADMIN_PASS"
-LDAPMODIFY_CONFIG="ldapmodify -x -a -H ldap://${LDAP_HOST}:${LDAP_PORT} -D $CONFIG_ADMIN -w $CONFIG_ADMIN_PASS"
+mkdir -p "$SLAPD_DIR" "$DATA_DIR"
 
-echo "=== Base data ==="
-$LDAPMODIFY_DATA -f init-ldifs/01-base.ldif
-$LDAPMODIFY_DATA -f init-ldifs/02-org-ou.ldif
-$LDAPMODIFY_DATA -f init-ldifs/03-users.ldif
-$LDAPMODIFY_DATA -f init-ldifs/04-service-accounts.ldif
-$LDAPMODIFY_DATA -f init-ldifs/05-groups.ldif
+# === Step 1: Bootstrap cn=config ===
+echo "=== Bootstrapping cn=config ==="
+docker run --rm --user root \
+  "${VOLUMES[@]}" \
+  -v "$(pwd)/init-config:/init-config:ro" \
+  --entrypoint slapadd "$IMAGE" \
+  -n 0 -F /etc/openldap/slapd.d -l /init-config/slapd-config.ldif
 
-echo "=== Applying ACLs ==="
-$LDAPMODIFY_CONFIG -f init-ldifs/06-acl.ldif
+# === Step 2: Build combined data LDIF ===
+echo "=== Loading initial data ==="
+TMP_DIR=$(mktemp -d)
+register_tmpfile "$TMP_DIR"
+{
+  for ldif in \
+    init-ldifs/01-base.ldif \
+    init-ldifs/02-org-ou.ldif \
+    init-ldifs/03-users.ldif \
+    init-ldifs/04-service-accounts.ldif \
+    init-ldifs/05-groups.ldif \
+    init-ldifs/06-default-ppolicy.ldif; do
+    sed 's/\r$//' "$ldif"
+    echo ""
+    echo ""
+  done
+} > "$TMP_DIR/all-data.ldif"
 
-echo "=== dynlist module ==="
-$LDAPMODIFY_CONFIG -f module-dynlist/01-enable-dynlist.ldif
-$LDAPMODIFY_CONFIG -f module-dynlist/02-overlay-dynlist.ldif
+docker run --rm --user root \
+  "${VOLUMES[@]}" \
+  -v "$TMP_DIR:/init-data:ro" \
+  --entrypoint slapadd "$IMAGE" \
+  -n 1 -F /etc/openldap/slapd.d -l /init-data/all-data.ldif
 
-echo "=== memberof module ==="
-$LDAPMODIFY_CONFIG -f module-memberof/01-enable-memberof.ldif
-$LDAPMODIFY_CONFIG -f module-memberof/02-overlay-memberof.ldif
+# === Step 3: Fix permissions ===
+echo "=== Fixing permissions ==="
+docker run --rm --user root \
+  "${VOLUMES[@]}" \
+  alpine:latest sh -c "chown -R ${LDAP_UID}:${LDAP_GID} /etc/openldap/slapd.d /var/lib/openldap/openldap-data"
 
-echo "=== ppolicy module ==="
-$LDAPMODIFY_CONFIG -f module-ppolicy/01-enable-ppolicy.ldif
-$LDAPMODIFY_DATA -f module-ppolicy/02-default-ppolicy.ldif
-$LDAPMODIFY_CONFIG -f module-ppolicy/03-overlay-ppolicy.ldif
+# === Step 4: Start containers ===
+echo "=== Starting containers ==="
+docker compose up -d
 
-echo "=== refint module ==="
-$LDAPMODIFY_CONFIG -f module-refint/01-enable-refint.ldif
-$LDAPMODIFY_CONFIG -f module-refint/02-overlay-refint.ldif
+echo "Waiting for OpenLDAP to start..."
+for i in $(seq 1 30); do
+  if ldapsearch -x -H "ldap://${LDAP_HOST}:${LDAP_PORT}" -b "" -s base "(objectClass=*)" namingContexts >/dev/null 2>&1; then
+    echo "OpenLDAP is ready."
+    break
+  fi
+  if [ "$i" -eq 30 ]; then
+    echo "Error: OpenLDAP did not start within 30 seconds."
+    docker logs openldap 2>&1 | tail -10
+    exit 1
+  fi
+  sleep 1
+done
 
+echo ""
 echo "LDAP setup completed."
+echo "  Admin DN:        $LOCAL_ADMIN_DN"
+echo "  Config Admin DN: $CONFIG_ADMIN"
+echo "  Base DN:         $BASE_DN"
+echo "  LDAP:            ldap://${LDAP_HOST}:${LDAP_PORT}"
+echo "  phpLDAPadmin:    http://localhost:8080"
+echo "  SSP:             http://localhost:8088"

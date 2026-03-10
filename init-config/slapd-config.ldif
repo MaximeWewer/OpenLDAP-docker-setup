@@ -1,0 +1,92 @@
+dn: cn=config
+objectClass: olcGlobal
+cn: config
+olcPidFile: /run/openldap/slapd.pid
+olcArgsFile: /run/openldap/slapd.args
+
+dn: cn=module{0},cn=config
+objectClass: olcModuleList
+cn: module{0}
+olcModulePath: /usr/lib/openldap
+olcModuleLoad: back_mdb.so
+olcModuleLoad: memberof.so
+olcModuleLoad: refint.so
+olcModuleLoad: ppolicy.so
+olcModuleLoad: dynlist.so
+
+dn: cn=schema,cn=config
+objectClass: olcSchemaConfig
+cn: schema
+
+include: file:///etc/openldap/schema/core.ldif
+include: file:///etc/openldap/schema/cosine.ldif
+include: file:///etc/openldap/schema/inetorgperson.ldif
+include: file:///etc/openldap/schema/dyngroup.ldif
+# Uncomment for POSIX support (posixAccount, shadowAccount):
+#include: file:///etc/openldap/schema/nis.ldif
+
+dn: olcDatabase={-1}frontend,cn=config
+objectClass: olcDatabaseConfig
+objectClass: olcFrontendConfig
+olcDatabase: {-1}frontend
+
+dn: olcDatabase={0}config,cn=config
+objectClass: olcDatabaseConfig
+olcDatabase: {0}config
+olcRootDN: cn=adminconfig,cn=config
+olcRootPW: {SSHA}TvbnXOBAi/jPewUbknNizpHkWdOaph34
+olcAccess: {0}to * by dn.exact="cn=adminconfig,cn=config" manage by * none
+
+dn: olcDatabase={1}mdb,cn=config
+objectClass: olcDatabaseConfig
+objectClass: olcMdbConfig
+olcDatabase: {1}mdb
+olcSuffix: dc=example,dc=org
+olcDbDirectory: /var/lib/openldap/openldap-data
+olcRootDN: cn=admin,dc=example,dc=org
+olcRootPW: {SSHA}wlMDjvJeSJd43qPSa9+Wy9koWkhXnkgq
+olcDbMaxSize: 1073741824
+olcDbIndex: objectClass eq
+olcDbIndex: cn,sn,uid eq,pres,sub
+olcDbIndex: mail eq,sub
+olcDbIndex: member eq
+# Uncomment for POSIX support:
+#olcDbIndex: uidNumber,gidNumber eq
+olcAccess: {0}to attrs=userPassword by self write by dn.exact="cn=admin,ou=users,dc=example,dc=org" write by dn.exact="cn=ssp,ou=service-accounts,dc=example,dc=org" write by anonymous auth by * none
+# Uncomment for POSIX support (shadowAccount):
+#olcAccess: {1}to attrs=shadowLastChange by self write by * read
+olcAccess: {1}to dn.subtree="ou=policies,dc=example,dc=org" by * read
+olcAccess: {2}to dn.subtree="ou=service-accounts,dc=example,dc=org" by dn.exact="cn=admin,ou=users,dc=example,dc=org" write by * none
+olcAccess: {3}to dn.subtree="ou=groups,dc=example,dc=org" by dn.exact="cn=admin,ou=users,dc=example,dc=org" write by dn.exact="cn=phpldapadmin,ou=service-accounts,dc=example,dc=org" read by * none
+olcAccess: {4}to dn.subtree="ou=users,dc=example,dc=org" by self write by dn.exact="cn=admin,ou=users,dc=example,dc=org" write by dn.exact="cn=phpldapadmin,ou=service-accounts,dc=example,dc=org" read by * none
+olcAccess: {5}to dn.base="dc=example,dc=org" by dn.exact="cn=admin,ou=users,dc=example,dc=org" write by * read
+
+dn: olcOverlay=memberof,olcDatabase={1}mdb,cn=config
+objectClass: olcOverlayConfig
+objectClass: olcMemberOf
+olcOverlay: memberof
+olcMemberOfRefInt: TRUE
+olcMemberOfGroupOC: groupOfNames
+olcMemberOfMemberAD: member
+olcMemberOfMemberOfAD: memberOf
+
+dn: olcOverlay=refint,olcDatabase={1}mdb,cn=config
+objectClass: olcOverlayConfig
+objectClass: olcRefintConfig
+olcOverlay: refint
+olcRefintAttribute: uniqueMember
+olcRefintAttribute: member
+olcRefintAttribute: memberOf
+
+dn: olcOverlay=ppolicy,olcDatabase={1}mdb,cn=config
+objectClass: olcOverlayConfig
+objectClass: olcPPolicyConfig
+olcOverlay: ppolicy
+olcPPolicyDefault: cn=defaultppolicy,ou=policies,dc=example,dc=org
+olcPPolicyHashCleartext: TRUE
+
+dn: olcOverlay=dynlist,olcDatabase={1}mdb,cn=config
+objectClass: olcOverlayConfig
+objectClass: olcDynListConfig
+olcOverlay: dynlist
+olcDynListAttrSet: groupOfUrls memberURL member+memberOf@groupOfNames

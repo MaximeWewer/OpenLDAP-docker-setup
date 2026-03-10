@@ -1,8 +1,8 @@
 <?php
-### Doc : https://self-service-password.readthedocs.io/en/latest/config_ldap.html 
+### Doc : https://self-service-password.readthedocs.io/en/latest/config_ldap.html
 
 # LDAP connection
-$ldap_url = "ldap://openldap:1389"; # If ldaps : $ldap_url = "ldaps://localhost";
+$ldap_url = "ldap://openldap:389"; # If ldaps : $ldap_url = "ldaps://openldap:636";
 // $ldap_starttls = true;
 // putenv("LDAPTLS_REQCERT=allow");
 // putenv("LDAPTLS_CACERT=/etc/ssl/certs/ca-certificates.crt");

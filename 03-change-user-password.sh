@@ -1,22 +1,8 @@
 #!/bin/bash
-
-# === LDAP Configuration Variables ===
-LDAP_HOST="localhost"
-LDAP_PORT="389"
-BASE_DN="dc=example,dc=org"
-USERS_OU="ou=users,$BASE_DN"
-LOCAL_ADMIN="admin"
-LOCAL_ADMIN_PASS="adminpassword"
-LOCAL_ADMIN_DN="cn=$LOCAL_ADMIN,$BASE_DN"
-
-# === Check if pwgen is installed ===
-if ! command -v pwgen >/dev/null 2>&1; then
-  echo "Error: pwgen is not installed. Install it with: sudo apt install pwgen"
-  exit 1
-fi
+source "$(dirname "$0")/common.sh"
 
 # === Check for required argument ===
-if [ -z "$1" ]; then
+if [ -z "${1:-}" ]; then
   echo "Usage: $0 username"
   exit 1
 fi
@@ -24,11 +10,17 @@ fi
 USERNAME="$1"
 USER_DN="cn=$USERNAME,$USERS_OU"
 
+# === Check user exists ===
+if ! user_exists "$USER_DN"; then
+  echo "Error: User '$USERNAME' does not exist."
+  exit 1
+fi
+
 # === Generate new password ===
-NEW_PASSWORD=$(pwgen -s -y 32 1)
+NEW_PASSWORD=$(generate_password 32)
 
 # === Create temporary LDIF to modify password ===
-TMP_LDIF=$(mktemp)
+TMP_LDIF=$(make_tmpfile)
 cat <<EOF > "$TMP_LDIF"
 dn: $USER_DN
 changetype: modify
@@ -37,8 +29,8 @@ userPassword: $NEW_PASSWORD
 EOF
 
 # === Apply the change ===
-ldapmodify -x -H ldap://$LDAP_HOST:$LDAP_PORT -D "$LOCAL_ADMIN_DN" -w "$LOCAL_ADMIN_PASS" -f "$TMP_LDIF"
-rm -f "$TMP_LDIF"
+ADMIN_PASSFILE=$(make_passfile "$LOCAL_ADMIN_PASS")
+ldapmodify -x -H "ldap://$LDAP_HOST:$LDAP_PORT" -D "$LOCAL_ADMIN_DN" -y "$ADMIN_PASSFILE" -f "$TMP_LDIF"
 
 # === Output credentials ===
 echo "Password changed for user: $USERNAME"

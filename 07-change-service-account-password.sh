@@ -1,39 +1,33 @@
 #!/bin/bash
-
-# === LDAP Configuration ===
-LDAP_HOST="localhost"
-LDAP_PORT="389"
-BASE_DN="dc=example,dc=org"
-SERVICE_OU="ou=service-accounts,$BASE_DN"
-LOCAL_ADMIN="admin"
-LOCAL_ADMIN_PASS="adminpassword"
-LOCAL_ADMIN_DN="cn=$LOCAL_ADMIN,$BASE_DN"
-
-# === Check if pwgen is installed ===
-if ! command -v pwgen >/dev/null 2>&1; then
-  echo "Error: pwgen is not installed. Install it with: sudo apt install pwgen"
-  exit 1
-fi
+source "$(dirname "$0")/common.sh"
 
 # === Check argument ===
-if [ -z "$1" ]; then
+if [ -z "${1:-}" ]; then
   echo "Usage: $0 service_account_name"
   exit 1
 fi
 
 ACCOUNT_NAME="$1"
-NEW_PASSWORD=$(pwgen -s -y 32 1)
+ACCOUNT_DN="cn=$ACCOUNT_NAME,$SERVICE_OU"
 
-TMP_LDIF=$(mktemp)
+# === Check account exists ===
+if ! user_exists "$ACCOUNT_DN"; then
+  echo "Error: Service account '$ACCOUNT_NAME' does not exist."
+  exit 1
+fi
+
+NEW_PASSWORD=$(generate_password 32)
+
+TMP_LDIF=$(make_tmpfile)
 cat <<EOF > "$TMP_LDIF"
-dn: cn=$ACCOUNT_NAME,$SERVICE_OU
+dn: $ACCOUNT_DN
 changetype: modify
 replace: userPassword
 userPassword: $NEW_PASSWORD
 EOF
 
-ldapmodify -x -H ldap://$LDAP_HOST:$LDAP_PORT -D "$LOCAL_ADMIN_DN" -w "$LOCAL_ADMIN_PASS" -f "$TMP_LDIF"
-rm -f "$TMP_LDIF"
+ADMIN_PASSFILE=$(make_passfile "$LOCAL_ADMIN_PASS")
+ldapmodify -x -H "ldap://$LDAP_HOST:$LDAP_PORT" -D "$LOCAL_ADMIN_DN" -y "$ADMIN_PASSFILE" -f "$TMP_LDIF"
 
 echo "Password updated for service account: $ACCOUNT_NAME"
 echo "New password: $NEW_PASSWORD"
