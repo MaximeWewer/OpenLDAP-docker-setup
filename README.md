@@ -73,6 +73,35 @@ bash 01-setup.sh --reset
 
 > **Important**: Change all default passwords before production use.
 
+4. **Change default passwords**
+
+```bash
+# Change admin user password (cn=admin,ou=users)
+bash 03-change-user-password.sh admin
+
+# Change config admin password (cn=adminconfig,cn=config)
+# Generate a new SSHA hash:
+docker run --rm --entrypoint slappasswd cleanstart/openldap:2.6.12 -s "NEW_PASSWORD"
+# Then update the rootDN password:
+ldapmodify -x -H ldap://localhost:389 -D "cn=adminconfig,cn=config" -w "adminpasswordconfig" <<EOF
+dn: olcDatabase={0}config,cn=config
+changetype: modify
+replace: olcRootPW
+olcRootPW: {SSHA}PASTE_HASH_HERE
+EOF
+
+# Change data rootDN password (cn=admin,dc=example,dc=org)
+ldapmodify -x -H ldap://localhost:389 -D "cn=adminconfig,cn=config" -w "adminpasswordconfig" <<EOF
+dn: olcDatabase={1}mdb,cn=config
+changetype: modify
+replace: olcRootPW
+olcRootPW: {SSHA}PASTE_HASH_HERE
+EOF
+```
+
+> After changing the config admin password, update `CONFIG_ADMIN_PASS` in `common.sh`.
+> After changing the data rootDN password, it does not affect `LOCAL_ADMIN_PASS` (scripts use the admin user, not the rootDN).
+
 ## Project structure
 
 ```
