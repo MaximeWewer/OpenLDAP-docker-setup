@@ -16,6 +16,7 @@ services:
       - ./certs:/etc/openldap/certs
       - ./data/slapd.d:/etc/openldap/slapd.d
       - ./data/openldap-data:/var/lib/openldap/openldap-data
+      - ./data/accesslog-data:/var/lib/openldap/accesslog-data
     # Uncomment for TLS support:
     # command: ["slapd", "-u", "ldap", "-g", "ldap", "-h", "ldap:// ldaps://", "-d", "64"]
     networks:

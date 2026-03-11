@@ -14,6 +14,7 @@ olcModuleLoad: memberof.so
 olcModuleLoad: refint.so
 olcModuleLoad: ppolicy.so
 olcModuleLoad: dynlist.so
+olcModuleLoad: accesslog.so
 
 dn: cn=schema,cn=config
 objectClass: olcSchemaConfig
@@ -60,7 +61,7 @@ olcAccess: {0}to attrs=userPassword by self write by dn.exact="cn=admin,ou=users
 olcAccess: {1}to dn.subtree="ou=policies,dc=example,dc=org" by * read
 olcAccess: {2}to dn.subtree="ou=service-accounts,dc=example,dc=org" by dn.exact="cn=admin,ou=users,dc=example,dc=org" write by * none
 olcAccess: {3}to dn.subtree="ou=groups,dc=example,dc=org" by dn.exact="cn=admin,ou=users,dc=example,dc=org" write by dn.exact="cn=phpldapadmin,ou=service-accounts,dc=example,dc=org" read by * none
-olcAccess: {4}to dn.subtree="ou=users,dc=example,dc=org" by self write by dn.exact="cn=admin,ou=users,dc=example,dc=org" write by dn.exact="cn=phpldapadmin,ou=service-accounts,dc=example,dc=org" read by * none
+olcAccess: {4}to dn.subtree="ou=users,dc=example,dc=org" by self write by dn.exact="cn=admin,ou=users,dc=example,dc=org" write by dn.exact="cn=phpldapadmin,ou=service-accounts,dc=example,dc=org" read by dn.exact="cn=adminconfig,cn=config" read by * none
 olcAccess: {5}to dn.base="dc=example,dc=org" by dn.exact="cn=admin,ou=users,dc=example,dc=org" write by * read
 
 dn: olcOverlay=memberof,olcDatabase={1}mdb,cn=config
@@ -93,9 +94,34 @@ objectClass: olcDynListConfig
 olcOverlay: dynlist
 olcDynListAttrSet: groupOfUrls memberURL member+memberOf@groupOfNames
 
-dn: olcDatabase={2}monitor,cn=config
+# Accesslog database - stores bind and write operation logs
+dn: olcDatabase={2}mdb,cn=config
+objectClass: olcDatabaseConfig
+objectClass: olcMdbConfig
+olcDatabase: {2}mdb
+olcSuffix: cn=accesslog
+olcDbDirectory: /var/lib/openldap/accesslog-data
+olcRootDN: cn=adminconfig,cn=config
+olcDbMaxSize: 1073741824
+olcDbIndex: reqStart eq
+olcDbIndex: reqDN eq
+olcDbIndex: reqType eq
+olcDbIndex: reqResult eq
+olcAccess: {0}to * by dn.exact="cn=adminconfig,cn=config" read by * none
+
+# Accesslog overlay on the main database - logs bind and write operations
+dn: olcOverlay=accesslog,olcDatabase={1}mdb,cn=config
+objectClass: olcOverlayConfig
+objectClass: olcAccessLogConfig
+olcOverlay: accesslog
+olcAccessLogDB: cn=accesslog
+olcAccessLogOps: writes bind
+olcAccessLogSuccess: FALSE
+olcAccessLogPurge: 07+00:00 01+00:00
+
+dn: olcDatabase={3}monitor,cn=config
 objectClass: olcDatabaseConfig
 objectClass: olcMonitorConfig
-olcDatabase: {2}monitor
+olcDatabase: {3}monitor
 olcAccess: {0}to dn.subtree="cn=Monitor" by dn.exact="cn=adminconfig,cn=config" read by * none
 olcMonitoring: TRUE

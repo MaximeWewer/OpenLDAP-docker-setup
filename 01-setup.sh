@@ -8,10 +8,12 @@ source "$(dirname "$0")/common.sh"
 IMAGE="$OPENLDAP_IMAGE"
 SLAPD_DIR="./data/slapd.d"
 DATA_DIR="./data/openldap-data"
+ACCESSLOG_DIR="./data/accesslog-data"
 
 VOLUMES=(
   -v "$(pwd)/data/slapd.d:/etc/openldap/slapd.d"
   -v "$(pwd)/data/openldap-data:/var/lib/openldap/openldap-data"
+  -v "$(pwd)/data/accesslog-data:/var/lib/openldap/accesslog-data"
 )
 
 # === Check for clean state ===
@@ -19,7 +21,7 @@ if [ -d "$SLAPD_DIR" ] && [ "$(ls -A $SLAPD_DIR 2>/dev/null)" ]; then
   if [[ "${1:-}" == "--reset" ]]; then
     echo "Resetting existing data..."
     docker compose down 2>/dev/null || true
-    docker run --rm -v "$(pwd)/data:/data" alpine:latest sh -c "rm -rf /data/slapd.d/* /data/openldap-data/*"
+    docker run --rm -v "$(pwd)/data:/data" alpine:latest sh -c "rm -rf /data/slapd.d/* /data/openldap-data/* /data/accesslog-data/*"
   else
     echo "Error: $SLAPD_DIR is not empty."
     echo "Run './01-setup.sh --reset' to wipe and reinitialize."
@@ -27,7 +29,7 @@ if [ -d "$SLAPD_DIR" ] && [ "$(ls -A $SLAPD_DIR 2>/dev/null)" ]; then
   fi
 fi
 
-mkdir -p "$SLAPD_DIR" "$DATA_DIR"
+mkdir -p "$SLAPD_DIR" "$DATA_DIR" "$ACCESSLOG_DIR"
 
 # === Step 1: Bootstrap cn=config ===
 echo "=== Bootstrapping cn=config ==="
@@ -65,7 +67,7 @@ docker run --rm --user root \
 echo "=== Fixing permissions ==="
 docker run --rm --user root \
   "${VOLUMES[@]}" \
-  alpine:latest sh -c "chown -R ${LDAP_UID}:${LDAP_GID} /etc/openldap/slapd.d /var/lib/openldap/openldap-data"
+  alpine:latest sh -c "chown -R ${LDAP_UID}:${LDAP_GID} /etc/openldap/slapd.d /var/lib/openldap/openldap-data /var/lib/openldap/accesslog-data"
 
 # === Step 4: Start containers ===
 echo "=== Starting containers ==="
