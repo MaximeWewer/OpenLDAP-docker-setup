@@ -9,6 +9,7 @@ objectClass: olcModuleList
 cn: module{0}
 olcModulePath: /usr/lib/openldap
 olcModuleLoad: back_mdb.so
+olcModuleLoad: back_monitor.so
 olcModuleLoad: memberof.so
 olcModuleLoad: refint.so
 olcModuleLoad: ppolicy.so
@@ -52,6 +53,7 @@ olcDbIndex: mail eq,sub
 olcDbIndex: member eq
 # Uncomment for POSIX support:
 #olcDbIndex: uidNumber,gidNumber eq
+olcMonitoring: TRUE
 olcAccess: {0}to attrs=userPassword by self write by dn.exact="cn=admin,ou=users,dc=example,dc=org" write by dn.exact="cn=ssp,ou=service-accounts,dc=example,dc=org" write by anonymous auth by * none
 # Uncomment for POSIX support (shadowAccount):
 #olcAccess: {1}to attrs=shadowLastChange by self write by * read
@@ -90,3 +92,10 @@ objectClass: olcOverlayConfig
 objectClass: olcDynListConfig
 olcOverlay: dynlist
 olcDynListAttrSet: groupOfUrls memberURL member+memberOf@groupOfNames
+
+dn: olcDatabase={2}monitor,cn=config
+objectClass: olcDatabaseConfig
+objectClass: olcMonitorConfig
+olcDatabase: {2}monitor
+olcAccess: {0}to dn.subtree="cn=Monitor" by dn.exact="cn=adminconfig,cn=config" read by * none
+olcMonitoring: TRUE

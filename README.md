@@ -339,6 +339,17 @@ Then configure your application with:
 | First name        | `givenName`                                      |
 | Last name         | `sn`                                             |
 
+## Monitoring
+
+The `back_monitor` module is enabled in `slapd-config.ldif`. It exposes server statistics via `cn=Monitor` (connections, operations, threads, etc.), accessible with the config admin credentials:
+
+```bash
+ldapsearch -x -H ldap://localhost:389 -D "cn=adminconfig,cn=config" -w "adminpasswordconfig" \
+  -b "cn=Monitor" "(objectClass=*)" -LLL
+```
+
+To expose these metrics to Prometheus, use the [OpenLDAP Prometheus Exporter](https://github.com/MaximeWewer/OpenLDAP_prometheus_exporter). It connects to `cn=Monitor` and serves metrics on an HTTP endpoint for Prometheus scraping.
+
 ## Password policy
 
 The default password policy (`cn=defaultppolicy,ou=policies`) enforces:
