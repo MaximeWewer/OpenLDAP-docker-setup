@@ -3,6 +3,11 @@ objectClass: olcGlobal
 cn: config
 olcPidFile: /run/openldap/slapd.pid
 olcArgsFile: /run/openldap/slapd.args
+# TLS - uncomment and adjust paths if using certificates
+#olcTLSCACertificateFile: /etc/openldap/certs/openldapCA.crt
+#olcTLSCertificateFile: /etc/openldap/certs/openldap.crt
+#olcTLSCertificateKeyFile: /etc/openldap/certs/openldap.key
+#olcTLSVerifyClient: never
 
 dn: cn=module{0},cn=config
 objectClass: olcModuleList

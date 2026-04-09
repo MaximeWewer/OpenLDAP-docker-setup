@@ -23,13 +23,23 @@ dc=example,dc=org
 
 ### ACL matrix (least privilege)
 
+**Main database** (`dc=example,dc=org`):
+
 | Identity         | userPassword | service-accounts | users | groups | policies | base DN |
 | ---------------- | ------------ | ---------------- | ----- | ------ | -------- | ------- |
 | self             | write        | -                | write | -      | -        | -       |
 | admin (ou=users) | write        | write            | write | write  | read     | write   |
+| adminconfig      | -            | -                | read  | -      | -        | -       |
 | ssp              | write        | -                | -     | -      | read     | -       |
 | phpldapadmin     | -            | -                | read  | read   | read     | -       |
 | anonymous        | auth only    | -                | -     | -      | read     | read    |
+
+**Infrastructure databases**:
+
+| Identity    | cn=config | cn=accesslog | cn=Monitor |
+| ----------- | --------- | ------------ | ---------- |
+| adminconfig | manage    | read         | read       |
+| *           | -         | -            | -          |
 
 Users and applications that need read access to `ou=users` or `ou=groups` must use a dedicated service account (see [Service accounts](#service-accounts)).
 
@@ -81,7 +91,7 @@ bash 03-change-user-password.sh admin
 
 # Change config admin password (cn=adminconfig,cn=config)
 # Generate a new SSHA hash:
-docker run --rm --entrypoint slappasswd cleanstart/openldap:2.6.12 -s "NEW_PASSWORD"
+docker run --rm --entrypoint slappasswd cleanstart/openldap:2.6.13 -s "NEW_PASSWORD"
 # Then update the rootDN password:
 ldapmodify -x -H ldap://localhost:389 -D "cn=adminconfig,cn=config" -w "adminpasswordconfig" <<EOF
 dn: olcDatabase={0}config,cn=config
@@ -229,23 +239,36 @@ bash 02-create-users.sh john.doe --posix
 bash 00-certs.sh
 ```
 
-2. Uncomment the TLS command in `docker-compose.yml`:
+2. Uncomment the TLS lines in `init-config/slapd-config.ldif` (in the `cn=config` entry):
 
-```yaml
-command: ["slapd", "-u", "ldap", "-g", "ldap", "-h", "ldap:// ldaps://", "-d", "64"]
+```ldif
+olcTLSCACertificateFile: /etc/openldap/certs/openldapCA.crt
+olcTLSCertificateFile: /etc/openldap/certs/openldap.crt
+olcTLSCertificateKeyFile: /etc/openldap/certs/openldap.key
+olcTLSVerifyClient: never
 ```
 
-3. Add TLS configuration to `slapd-config.ldif` (in the `olcDatabase={1}mdb` or `cn=config` section) and update `ssp.conf.php` / phpLDAPadmin env vars accordingly.
+3. Uncomment the `command` line in `docker-compose.yml` to enable `ldaps://`:
 
-4. Test:
+```yaml
+command: ["slapd", "-d", "0", "-h", "ldap:// ldaps://", "-F", "/etc/openldap/slapd.d"]
+```
+
+4. If using phpLDAPadmin over LDAPS, update the env vars in `docker-compose.yml`:
+
+```yaml
+- LDAP_CONNECTION=ldaps
+- LDAP_PORT=636
+```
+
+5. Test:
 
 ```bash
-# StartTLS
-LDAPTLS_CACERT=./certs/openldapCA.crt ldapsearch -x -ZZ -H ldap://localhost:389 -D "cn=admin,ou=users,dc=example,dc=org" -w "adminpassword" -b "dc=example,dc=org"
-
 # LDAPS
 LDAPTLS_CACERT=./certs/openldapCA.crt ldapsearch -x -H ldaps://localhost:636 -D "cn=admin,ou=users,dc=example,dc=org" -w "adminpassword" -b "dc=example,dc=org"
 ```
+
+> **Note**: If TLS is enabled after initial setup (without `--reset`), you can add the TLS config at runtime via `ldapmodify` on `cn=config` without re-bootstrapping.
 
 ## Backup & restore
 
@@ -253,7 +276,7 @@ LDAPTLS_CACERT=./certs/openldapCA.crt ldapsearch -x -H ldaps://localhost:636 -D 
 
 ### Backup
 
-Since `cleanstart/openldap` has no shell, backups are done by copying the data directory:
+Since `cleanstart/openldap` has no shell, backups are done via `tar` in an alpine container:
 
 ```bash
 # Config backup
@@ -263,6 +286,10 @@ docker run --rm -v ./data/slapd.d:/slapd.d:ro -v ./backup:/backup alpine:latest 
 # Data backup
 docker run --rm -v ./data/openldap-data:/data:ro -v ./backup:/backup alpine:latest \
   sh -c "tar czf /backup/data_$(date +%Y%m%d).tar.gz -C /data ."
+
+# Accesslog backup
+docker run --rm -v ./data/accesslog-data:/data:ro -v ./backup:/backup alpine:latest \
+  sh -c "tar czf /backup/accesslog_$(date +%Y%m%d).tar.gz -C /data ."
 ```
 
 ### Restore
@@ -271,7 +298,8 @@ docker run --rm -v ./data/openldap-data:/data:ro -v ./backup:/backup alpine:late
 docker compose down
 
 # Clean existing data
-docker run --rm -v ./data:/data alpine:latest sh -c "rm -rf /data/slapd.d/* /data/openldap-data/*"
+docker run --rm -v ./data:/data alpine:latest \
+  sh -c "rm -rf /data/slapd.d/* /data/openldap-data/* /data/accesslog-data/*"
 
 # Restore config
 docker run --rm -v ./data/slapd.d:/slapd.d -v ./backup:/backup alpine:latest \
@@ -281,9 +309,16 @@ docker run --rm -v ./data/slapd.d:/slapd.d -v ./backup:/backup alpine:latest \
 docker run --rm -v ./data/openldap-data:/data -v ./backup:/backup alpine:latest \
   sh -c "tar xzf /backup/data_DATE.tar.gz -C /data"
 
+# Restore accesslog
+docker run --rm -v ./data/accesslog-data:/data -v ./backup:/backup alpine:latest \
+  sh -c "tar xzf /backup/accesslog_DATE.tar.gz -C /data"
+
 # Fix permissions
-docker run --rm -v ./data/slapd.d:/slapd.d -v ./data/openldap-data:/data alpine:latest \
-  sh -c "chown -R 101:102 /slapd.d /data"
+docker run --rm \
+  -v ./data/slapd.d:/slapd.d \
+  -v ./data/openldap-data:/data \
+  -v ./data/accesslog-data:/alog \
+  alpine:latest sh -c "chown -R 101:102 /slapd.d /data /alog"
 
 docker compose up -d
 ```
@@ -291,9 +326,11 @@ docker compose up -d
 ### Cronjob
 
 ```bash
-# Daily backup at 10 PM
+# Daily backup at 10 PM + cleanup after 30 days
 0 22 * * * cd /path/to/OpenLDAP-docker-setup && docker run --rm -v ./data/slapd.d:/slapd.d:ro -v ./backup:/backup alpine:latest sh -c "tar czf /backup/config_$(date +\%Y\%m\%d).tar.gz -C /slapd.d ."
 0 22 * * * cd /path/to/OpenLDAP-docker-setup && docker run --rm -v ./data/openldap-data:/data:ro -v ./backup:/backup alpine:latest sh -c "tar czf /backup/data_$(date +\%Y\%m\%d).tar.gz -C /data ."
+0 22 * * * cd /path/to/OpenLDAP-docker-setup && docker run --rm -v ./data/accesslog-data:/data:ro -v ./backup:/backup alpine:latest sh -c "tar czf /backup/accesslog_$(date +\%Y\%m\%d).tar.gz -C /data ."
+0 23 * * * find /path/to/OpenLDAP-docker-setup/backup -name "*.tar.gz" -mtime +30 -delete
 ```
 
 ## LDAP commands reference

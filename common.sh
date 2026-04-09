@@ -26,7 +26,7 @@ OLC_DB_DN="olcDatabase={1}mdb,cn=config"
 MAIL_DOMAIN="example.org"
 
 # Image
-OPENLDAP_IMAGE="cleanstart/openldap:2.6.12"
+OPENLDAP_IMAGE="cleanstart/openldap:2.6.13"
 LDAP_UID=101
 LDAP_GID=102
 

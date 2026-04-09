@@ -4,21 +4,21 @@ networks:
 
 services:
   openldap:
-    image: cleanstart/openldap:2.6.12
+    image: cleanstart/openldap:2.6.13
     container_name: openldap
     hostname: openldap
     restart: always
+    # Uncomment for TLS/LDAPS support (requires certs + TLS config in slapd-config.ldif):
+    #command: ["slapd", "-d", "0", "-h", "ldap:// ldaps://", "-F", "/etc/openldap/slapd.d"]
     ports:
       - 389:389
       - 636:636
     volumes:
       - ./backup:/backup
-      - ./certs:/etc/openldap/certs
+      - ./certs:/etc/openldap/certs:ro
       - ./data/slapd.d:/etc/openldap/slapd.d
       - ./data/openldap-data:/var/lib/openldap/openldap-data
       - ./data/accesslog-data:/var/lib/openldap/accesslog-data
-    # Uncomment for TLS support:
-    # command: ["slapd", "-u", "ldap", "-g", "ldap", "-h", "ldap:// ldaps://", "-d", "64"]
     networks:
       - ldap-internal
     logging:
