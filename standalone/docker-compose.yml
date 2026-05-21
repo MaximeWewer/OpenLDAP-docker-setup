@@ -28,7 +28,7 @@ services:
         "max-file": "5"
 
   phpldapadmin:
-    image: phpldapadmin/phpldapadmin:2.3.9
+    image: phpldapadmin/phpldapadmin:2.3.11
     container_name: phpldapadmin
     hostname: phpldapadmin
     restart: always

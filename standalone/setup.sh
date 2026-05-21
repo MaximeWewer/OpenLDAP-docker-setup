@@ -3,7 +3,7 @@ set -euo pipefail
 
 # === Configuration ===
 # We source common.sh for shared variables but override what's needed
-source "$(dirname "$0")/common.sh"
+source "$(dirname "$0")/../common.sh"
 
 IMAGE="$OPENLDAP_IMAGE"
 SLAPD_DIR="./data/slapd.d"
@@ -24,7 +24,7 @@ if [ -d "$SLAPD_DIR" ] && [ "$(ls -A $SLAPD_DIR 2>/dev/null)" ]; then
     docker run --rm -v "$(pwd)/data:/data" alpine:latest sh -c "rm -rf /data/slapd.d/* /data/openldap-data/* /data/accesslog-data/*"
   else
     echo "Error: $SLAPD_DIR is not empty."
-    echo "Run './01-setup.sh --reset' to wipe and reinitialize."
+    echo "Run './setup.sh --reset' to wipe and reinitialize."
     exit 1
   fi
 fi
@@ -45,12 +45,12 @@ TMP_DIR=$(mktemp -d)
 register_tmpfile "$TMP_DIR"
 {
   for ldif in \
-    init-ldifs/01-base.ldif \
-    init-ldifs/02-org-ou.ldif \
-    init-ldifs/03-users.ldif \
-    init-ldifs/04-service-accounts.ldif \
-    init-ldifs/05-groups.ldif \
-    init-ldifs/06-default-ppolicy.ldif; do
+    ../base-ldifs/01-base.ldif \
+    ../base-ldifs/02-org-ou.ldif \
+    ../base-ldifs/03-users.ldif \
+    ../base-ldifs/04-service-accounts.ldif \
+    ../base-ldifs/05-groups.ldif \
+    ../base-ldifs/06-default-ppolicy.ldif; do
     sed 's/\r$//' "$ldif"
     echo ""
     echo ""

@@ -1,0 +1,77 @@
+networks:
+  ldap-ha:
+    driver: bridge
+
+services:
+  openldap:
+    image: cleanstart/openldap:2.6.13
+    container_name: openldap
+    hostname: openldap-${SERVER_ID:-1}
+    restart: always
+    # Bind on all interfaces so peers can reach this node on host port 389.
+    ports:
+      - "389:389"
+      - "636:636"
+    volumes:
+      - ./data/slapd.d:/etc/openldap/slapd.d
+      - ./data/openldap-data:/var/lib/openldap/openldap-data
+      - ./data/accesslog-data:/var/lib/openldap/accesslog-data
+      - ./backup:/backup
+      - ./certs:/etc/openldap/certs:ro
+    networks:
+      - ldap-ha
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+  haproxy:
+    image: haproxy:3.3-alpine
+    container_name: haproxy-ldap
+    hostname: haproxy-${SERVER_ID:-1}
+    restart: always
+    ports:
+      - "1389:1389" # client-facing LB port (LDAP)
+      - "1636:1636" # client-facing LB port (LDAPS, if TLS enabled)
+      - "8404:8404" # HAProxy stats
+    volumes:
+      - ./haproxy/haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
+    networks:
+      - ldap-ha
+    depends_on:
+      - openldap
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+  phpldapadmin:
+    image: phpldapadmin/phpldapadmin:2.3.11
+    container_name: phpldapadmin
+    hostname: phpldapadmin
+    restart: always
+    ports:
+      - "8080:8080"
+    environment:
+      - APP_KEY=base64:QyPrQb0gZEn+9kkBfBXzc2Io8JH6ajsiSvWJCgIfeMg=
+      - APP_TIMEZONE=Europe/Paris
+      - APP_URL=http://localhost:8080
+      - LDAP_HOST=haproxy
+      - LDAP_CONNECTION=ldap
+      - LDAP_PORT=1389
+      - LDAP_BASE_DN=dc=example,dc=org
+      - LDAP_USERNAME=cn=phpldapadmin,ou=service-accounts,dc=example,dc=org
+      - LDAP_PASSWORD=phpldapadmin
+      - LDAP_LOGIN_ATTR=uid
+      - LDAP_LOGIN_ATTR_DESC=Username
+    networks:
+      - ldap-ha
+    depends_on:
+      - haproxy
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"

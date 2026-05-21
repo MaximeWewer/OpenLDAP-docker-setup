@@ -1,0 +1,22 @@
+.vagrant/
+
+# Persistent OpenLDAP data (per-mode)
+standalone/data/
+ha-active-active/data/
+ha-active-passive/data/
+
+# Per-mode env + rendered HAProxy config
+ha-active-active/.env
+ha-active-passive/.env
+ha-active-active/haproxy/haproxy.cfg
+ha-active-passive/haproxy/haproxy.cfg
+
+# TLS material (generated locally per mode)
+*/certs/*.crt
+*/certs/*.key
+*/certs/*.csr
+*/certs/*.srl
+
+# Backup dumps (generated per mode)
+*/backup/*.tar.gz
+*/backup/*.tgz

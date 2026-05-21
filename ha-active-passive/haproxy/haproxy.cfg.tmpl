@@ -1,0 +1,48 @@
+global
+    log stdout format raw local0
+    maxconn 4096
+    daemon
+
+defaults
+    log     global
+    mode    tcp
+    option  tcplog
+    option  dontlognull
+    timeout connect 5s
+    timeout client  1m
+    timeout server  1m
+    timeout check   3s
+
+# === Stats UI (HTTP) ===
+frontend stats
+    mode http
+    bind *:8404
+    stats enable
+    stats uri /
+    stats refresh 10s
+    stats auth @@HAPROXY_STATS_USER@@:@@HAPROXY_STATS_PASSWORD@@
+
+# === LDAP (plaintext) ===
+frontend ldap_front
+    bind *:1389
+    mode tcp
+    default_backend ldap_back
+
+backend ldap_back
+    mode tcp
+    balance first
+    option ldap-check
+@@LDAP_SERVERS@@
+
+# === LDAPS (TLS passthrough) ===
+frontend ldaps_front
+    bind *:1636
+    mode tcp
+    default_backend ldaps_back
+
+backend ldaps_back
+    mode tcp
+    balance first
+    option tcp-check
+    tcp-check connect
+@@LDAPS_SERVERS@@

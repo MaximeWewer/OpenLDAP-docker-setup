@@ -1,0 +1,64 @@
+# -*- mode: ruby -*-
+# vi: set ft=ruby :
+#
+# OpenLDAP HA — Active-Active (N-way Multi-Master) — 3 VMs
+#
+#   vagrant up                  # boot cluster
+#   vagrant ssh ldap1           # shell into node 1
+#   vagrant destroy -f          # tear down
+#
+# Networks:
+#   ldap1 192.168.56.10
+#   ldap2 192.168.56.11
+#   ldap3 192.168.56.12
+
+BOX           = ENV.fetch("VAGRANT_BOX", "cloud-image/ubuntu-26.04")
+NUM_NODES     = 3
+SUBNET_PREFIX = "192.168.56"
+BASE_OCTET    = 10
+MEMORY        = 1024
+CPUS          = 1
+
+NODE_URIS = (0...NUM_NODES).map { |i| "ldap://#{SUBNET_PREFIX}.#{BASE_OCTET + i}:389" }.join(",")
+
+# Monkey-patch: vagrant-vbguest 0.32.0 calls File.exists? which was removed in Ruby 3.2.
+unless File.respond_to?(:exists?)
+  class << File
+    alias_method :exists?, :exist?
+  end
+end
+
+Vagrant.configure("2") do |config|
+  config.vm.box = BOX
+
+  if Vagrant.has_plugin?("vagrant-vbguest")
+    config.vbguest.auto_update = false
+    config.vbguest.no_install  = true
+  end
+  # Sync repo root so base-ldifs/, common.sh etc are accessible at /vagrant/.
+  config.vm.synced_folder "../..", "/vagrant", type: "rsync",
+    rsync__exclude: [".git/", ".vagrant/",
+                     "standalone/data/",
+                     "ha-active-active/data/", "ha-active-passive/data/",
+                     "data/"]
+
+  (1..NUM_NODES).each do |i|
+    config.vm.define "ldap#{i}" do |node|
+      ip = "#{SUBNET_PREFIX}.#{BASE_OCTET + i - 1}"
+      node.vm.hostname = "ldap#{i}"
+      node.vm.network "private_network", ip: ip
+
+      node.vm.provider "virtualbox" do |vb|
+        vb.name   = "openldap-aa-ldap#{i}"
+        vb.memory = MEMORY
+        vb.cpus   = CPUS
+      end
+
+      node.vm.provision "shell", path: "provision.sh", env: {
+        "SERVER_ID"           => i.to_s,
+        "NODE_URIS"           => NODE_URIS,
+        "ENABLE_PHPLDAPADMIN" => (i == 1 ? "true" : "false")
+      }
+    end
+  end
+end

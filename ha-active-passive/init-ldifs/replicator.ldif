@@ -1,0 +1,7 @@
+dn: cn=replicator,ou=service-accounts,dc=example,dc=org
+objectClass: inetOrgPerson
+cn: replicator
+sn: replicator
+uid: replicator
+description: Syncrepl replicator account - used for HA replication between peers
+userPassword: replicatorpassword
