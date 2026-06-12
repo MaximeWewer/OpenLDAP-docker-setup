@@ -7,22 +7,32 @@ set -euo pipefail
 
 export DEBIAN_FRONTEND=noninteractive
 
+# Wait for cloud-init / unattended-upgrades to release the apt lock
+if command -v cloud-init >/dev/null 2>&1; then
+  cloud-init status --wait >/dev/null 2>&1 || true
+fi
+# Stop unattended-upgrades so it doesn't race with our apt-get calls
+systemctl stop unattended-upgrades.service 2>/dev/null || true
+systemctl mask  unattended-upgrades.service 2>/dev/null || true
+# apt-get lock timeout - waits up to 600s if another apt holds the lock
+APT="apt-get -o DPkg::Lock::Timeout=600"
+
 # === Install Docker if missing ===
 if ! command -v docker >/dev/null 2>&1; then
   echo "=== Installing Docker ==="
-  apt-get update -qq
-  apt-get install -y -qq ca-certificates curl gnupg python3 ldap-utils
+  $APT update -qq
+  $APT install -y -qq ca-certificates curl gnupg python3 ldap-utils
   install -m 0755 -d /etc/apt/keyrings
   curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
   chmod a+r /etc/apt/keyrings/docker.gpg
   . /etc/os-release
   echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu $VERSION_CODENAME stable" \
     > /etc/apt/sources.list.d/docker.list
-  apt-get update -qq
-  apt-get install -y -qq docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+  $APT update -qq
+  $APT install -y -qq docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
   usermod -aG docker vagrant
 fi
-apt-get install -y -qq ldap-utils python3 || true
+$APT install -y -qq ldap-utils python3 || true
 
 HA_DIR=/vagrant/ha-active-active
 cd "$HA_DIR"

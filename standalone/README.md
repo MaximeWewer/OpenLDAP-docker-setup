@@ -39,6 +39,6 @@ Shared with other modes (parent directory):
 |------|---------|
 | `../common.sh` | Shared bash helpers |
 | `../base-ldifs/` | Base directory data (users, groups, policies) |
-| `certs.sh` + `certs/` | TLS certificate generation + material |
+| `certs.sh` + `certs/` | TLS cert generation/renewal (idempotent; see root README for cron) |
 | `backup/` | Backup dump location |
 | `../admin scripts` | Admin scripts (users/groups/service-accounts) |

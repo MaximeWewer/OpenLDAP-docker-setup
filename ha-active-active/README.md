@@ -40,15 +40,15 @@ The 3-VM test cluster lives under [`tests/`](tests/):
 cd tests
 vagrant up                                                      # boot cluster
 ./test-replication.sh \
-  ldap://192.168.56.10 ldap://192.168.56.11 ldap://192.168.56.12
+  ldap://192.168.58.10 ldap://192.168.58.11 ldap://192.168.58.12
 vagrant destroy -f                                              # tear down
 ```
 
 | VM    | IP             | Notes |
 |-------|----------------|-------|
-| ldap1 | 192.168.56.10  | master + phpLDAPadmin enabled |
-| ldap2 | 192.168.56.11  | master |
-| ldap3 | 192.168.56.12  | master |
+| ldap1 | 192.168.58.10  | master + phpLDAPadmin enabled |
+| ldap2 | 192.168.58.11  | master |
+| ldap3 | 192.168.58.12  | master |
 
 ## Manual setup (no Vagrant)
 
@@ -93,6 +93,7 @@ Test scaffolding (under `tests/`):
 | `tests/Vagrantfile` | 3-VM cluster definition |
 | `tests/provision.sh` | Vagrant provisioner: install Docker + run setup-node.sh |
 | `tests/test-replication.sh` | Write probe + cross-peer convergence check |
+| `tests/distribute-ca.sh` | Bootstrap shared CA on ldap1, distribute to ldap2+ldap3, generate per-node certs |
 
 Local data: `init-ldifs/replicator.ldif` (HA-only service account).
-Local TLS material: `certs.sh` + `certs/`. Backup dumps: `backup/`. Pulls from `../base-ldifs/` (shared directory data).
+Local TLS material: `certs.sh` + `certs/` (idempotent renewal — see root README for cron). Backup dumps: `backup/`. Pulls from `../base-ldifs/` (shared directory data).

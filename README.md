@@ -65,7 +65,7 @@ cd ha-active-passive/tests && vagrant up
 cd ha-active-active/tests && vagrant up
 ```
 
-Each HA mode boots a 3-VM VirtualBox cluster (`192.168.56.10-12`) running Docker + OpenLDAP 2.6 + HAProxy. See per-mode READMEs for details:
+Each HA mode boots a 3-VM VirtualBox cluster (`192.168.58.10-12`) running Docker + OpenLDAP 2.6 + HAProxy. See per-mode READMEs for details:
 
 - [standalone/README.md](standalone/README.md)
 - [ha-active-passive/README.md](ha-active-passive/README.md)
@@ -286,6 +286,74 @@ LDAPTLS_CACERT=./certs/openldapCA.crt ldapsearch -x -H ldaps://localhost:636 -D 
 ```
 
 > **Note**: If TLS is enabled after initial setup (without `--reset`), you can add the TLS config at runtime via `ldapmodify` on `cn=config` without re-bootstrapping.
+
+### Certificate renewal
+
+`certs.sh` is idempotent and safe to run repeatedly. It:
+
+- Generates the CA only when missing (or with `--regen-ca`)
+- Renews the LDAP server cert only when missing, expired, or expiring within `--renew-threshold-days N` (default **30 days**)
+- With `--restart`, restarts the `openldap` container when a cert is actually renewed (slapd reads TLS material at startup — no hot reload)
+- HAProxy is **not** restarted: it does TCP passthrough in HA modes, so cert renewal is transparent to it
+- `--quiet` suppresses output when nothing happens (cron-friendly)
+
+```bash
+# Manual usage
+cd <mode>
+bash certs.sh                          # renew if expiring within 30 days
+bash certs.sh --force                  # renew unconditionally
+bash certs.sh --restart                # renew and restart container if renewed
+bash certs.sh --regen-ca               # also regen the CA (rare)
+bash certs.sh --renew-threshold-days 7 # tighter window
+bash certs.sh --san "DNS:ldap1,IP:192.168.58.10"   # override SAN (HA: per-node)
+bash certs.sh --help
+```
+
+#### HA: shared CA across nodes
+
+**Each peer must trust the same CA**, otherwise HAProxy failover causes TLS mismatch (client sees a different CA after switching nodes). Workflow:
+
+1. **CA master (node 1)** — generates the CA + its own server cert (SAN = node 1 hostname/IP).
+2. **Each peer (node 2, 3, …)** — receives the CA's cert+key (via scp or the helper below), then `certs.sh --ca-from PATH --san "..."` produces a per-node server cert signed by the shared CA.
+
+Manual (production-ish):
+
+```bash
+# On node 1
+cd /path/to/ha-active-active
+bash certs.sh --san "DNS:ldap1,IP:192.168.58.10" --restart
+
+# Copy CA cert+key to every peer (root-only files, treat carefully)
+scp certs/openldapCA.{crt,key} root@192.168.58.11:/path/to/ha-active-active/certs/staging/
+scp certs/openldapCA.{crt,key} root@192.168.58.12:/path/to/ha-active-active/certs/staging/
+
+# On each peer (with its own SAN)
+ssh root@192.168.58.11 "cd /path/to/ha-active-active && bash certs.sh --ca-from certs/staging --san 'DNS:ldap2,IP:192.168.58.11' --restart"
+ssh root@192.168.58.12 "cd /path/to/ha-active-active && bash certs.sh --ca-from certs/staging --san 'DNS:ldap3,IP:192.168.58.12' --restart"
+```
+
+Vagrant test cluster (uses `vagrant ssh` to stream the CA between VMs):
+
+```bash
+cd ha-active-active/tests   # or ha-active-passive/tests
+bash distribute-ca.sh        # bootstraps CA on ldap1, distributes to ldap2+ldap3,
+                             # runs certs.sh per-node with the correct SAN, verifies chain
+```
+
+#### Cron — automatic renewal
+
+Replace `<mode>` with your deployment directory. On HA, install the cron on **every node** — the script reuses the existing CA and only renews the per-node server cert.
+
+```cron
+# Weekly check at 04:00 every Monday: renew if expiring within 30d, restart openldap if renewed.
+# (HA peer example - keep --san per-node)
+0 4 * * 1 cd /path/to/OpenLDAP-docker-setup/<mode> && bash certs.sh --renew-threshold-days 30 --san "DNS:ldap2,IP:192.168.58.11" --restart --quiet >> /var/log/openldap-certs.log 2>&1
+```
+
+- `--quiet` keeps the log empty when no action is taken; only renewals/errors are recorded.
+- Run the cron as **root** (or with passwordless sudo) — the script needs to `chown 101:102 certs/` so the openldap container can read the cert.
+- Verify next expiry: `openssl x509 -in <mode>/certs/openldap.crt -enddate -noout`.
+- **CA expiry** (3 years by default): plan a manual `--regen-ca` rotation campaign + re-distribution before that date.
 
 ## Backup & restore
 

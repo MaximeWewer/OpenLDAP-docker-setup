@@ -9,7 +9,7 @@
 
 BOX           = ENV.fetch("VAGRANT_BOX", "cloud-image/ubuntu-26.04")
 NUM_NODES     = 3
-SUBNET_PREFIX = "192.168.56"
+SUBNET_PREFIX = "192.168.58"
 BASE_OCTET    = 10
 MEMORY        = 1024
 CPUS          = 1

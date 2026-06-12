@@ -43,7 +43,7 @@ The 3-VM test cluster lives under [`tests/`](tests/):
 cd tests
 vagrant up
 ./test-replication.sh \
-  ldap://192.168.56.10 ldap://192.168.56.11 ldap://192.168.56.12
+  ldap://192.168.58.10 ldap://192.168.58.11 ldap://192.168.58.12
 vagrant destroy -f
 ```
 
@@ -55,7 +55,7 @@ vagrant ssh ldap1 -c 'sudo docker stop openldap'
 
 # Wait for HAProxy to mark node1 DOWN (~15-20s), then write via any node's HAProxy
 sleep 20
-ldapadd -x -H ldap://192.168.56.11:1389 -D cn=admin,dc=example,dc=org -w adminpassword <<EOF
+ldapadd -x -H ldap://192.168.58.11:1389 -D cn=admin,dc=example,dc=org -w adminpassword <<EOF
 dn: cn=failover-test,ou=users,dc=example,dc=org
 objectClass: inetOrgPerson
 cn: failover-test
@@ -70,9 +70,9 @@ vagrant ssh ldap1 -c 'sudo docker start openldap'
 
 | VM    | IP             | Role       | Writes accepted? |
 |-------|----------------|------------|------------------|
-| ldap1 | 192.168.56.10  | master (active)  | yes (primary) |
-| ldap2 | 192.168.56.11  | master (backup)  | yes (when promoted) |
-| ldap3 | 192.168.56.12  | consumer (read-only) | **no** (shadow) |
+| ldap1 | 192.168.58.10  | master (active)  | yes (primary) |
+| ldap2 | 192.168.58.11  | master (backup)  | yes (when promoted) |
+| ldap3 | 192.168.58.12  | consumer (read-only) | **no** (shadow) |
 
 ## Manual setup
 
@@ -105,9 +105,10 @@ Test scaffolding (under `tests/`):
 | `tests/Vagrantfile` | 3-VM cluster definition |
 | `tests/provision.sh` | Vagrant provisioner |
 | `tests/test-replication.sh` | Write probe (also detects consumer rejection) |
+| `tests/distribute-ca.sh` | Bootstrap shared CA on ldap1, distribute to ldap2+ldap3, generate per-node certs |
 
 Local data: `init-ldifs/replicator.ldif` (HA-only service account).
-Local TLS material: `certs.sh` + `certs/`. Backup dumps: `backup/`. Pulls from `../base-ldifs/` (shared directory data).
+Local TLS material: `certs.sh` + `certs/` (idempotent renewal — see root README for cron). Backup dumps: `backup/`. Pulls from `../base-ldifs/` (shared directory data).
 
 ## Caveats
 

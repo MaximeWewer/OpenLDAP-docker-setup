@@ -8,13 +8,13 @@
 #   vagrant destroy -f          # tear down
 #
 # Networks:
-#   ldap1 192.168.56.10
-#   ldap2 192.168.56.11
-#   ldap3 192.168.56.12
+#   ldap1 192.168.58.10
+#   ldap2 192.168.58.11
+#   ldap3 192.168.58.12
 
 BOX           = ENV.fetch("VAGRANT_BOX", "cloud-image/ubuntu-26.04")
 NUM_NODES     = 3
-SUBNET_PREFIX = "192.168.56"
+SUBNET_PREFIX = "192.168.58"
 BASE_OCTET    = 10
 MEMORY        = 1024
 CPUS          = 1
