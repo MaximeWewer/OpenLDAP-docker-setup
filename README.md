@@ -100,13 +100,10 @@ graph LR
     root --> shared["Shared resources"]
 
     shared --> common["common.sh"]
-    shared --> s02["create-users.sh"]
-    shared --> s03["change-user-password.sh"]
-    shared --> s04["delete-users.sh"]
-    shared --> s05["create-group.sh"]
-    shared --> s06["add-service-account.sh"]
-    shared --> s07["change-service-account-password.sh"]
-    shared --> s08["delete-service-account.sh"]
+    shared --> admin_users["users + groups<br/><i>create / change-pwd / delete / rename<br/>list / user-info / unlock / force-reset<br/>modify-attribute / bulk-import / export<br/>group-add-member / group-remove-member</i>"]
+    shared --> admin_svc["service-accounts<br/><i>add / change-pwd / delete</i>"]
+    shared --> admin_ppol["ppolicy<br/><i>set-ppolicy / assign-ppolicy</i>"]
+    shared --> admin_ops["ops & diag<br/><i>check-replication / db-stats<br/>accesslog-purge / who-can-write<br/>audit-binds / create-ou</i>"]
     shared --> initl["base-ldifs/<br/><i>base directory data (users, groups, ppolicy)</i>"]
 
     standalone --> sa_compose["docker-compose.yml"]
@@ -221,6 +218,108 @@ Delete (also cleans up ACL references):
 
 ```bash
 bash delete-service-account.sh gitea
+```
+
+### Group membership
+
+```bash
+# Add members to an existing group
+bash group-add-member.sh demo john.doe jane.smith
+
+# Remove members (group must keep ≥1 member — groupOfNames constraint)
+bash group-remove-member.sh demo john.doe
+```
+
+### Account lifecycle / status
+
+```bash
+# Reset ppolicy lockout + failure counter (after brute-force / typo storm)
+bash unlock-user.sh john.doe
+
+# Force pwd change at next login (onboarding / suspicion of leak)
+bash force-password-reset.sh john.doe
+
+# Modify a single attribute
+bash modify-user-attribute.sh john.doe mail john.doe@example.org
+bash modify-user-attribute.sh john.doe telephoneNumber "+33 1 23 45 67 89"
+bash modify-user-attribute.sh john.doe description --delete-all
+
+# Rename: modrdn + refresh derived attrs (uid, mail, sn, givenName, displayName).
+# Group memberships migrate automatically via the refint overlay.
+bash rename-user.sh john.doe john.duponta
+
+# Full snapshot: identity + groups + ppolicy state + derived status
+bash user-info.sh john.doe
+```
+
+### Listing & search
+
+```bash
+# All users (cn, uid, mail, displayName, memberOf)
+bash list-users.sh
+
+# Filtered
+bash list-users.sh --group=admin           # only members of cn=admin,ou=groups
+bash list-users.sh --locked                # only locked accounts
+bash list-users.sh --posix                 # only POSIX users
+bash list-users.sh --full                  # all attributes
+
+# Groups
+bash list-groups.sh
+bash list-groups.sh --with-members
+```
+
+### Bulk import / export
+
+```bash
+# Import from CSV (rows: firstname.lastname[,group][,mail-override])
+bash bulk-import-users.sh users.csv --group=demo
+
+# Export users to CSV
+bash export-users.sh --out=users-export.csv
+bash export-users.sh --with-hash --out=full.csv   # include userPassword (admin-only)
+```
+
+### Password policies
+
+```bash
+# Create / update a named policy
+bash set-ppolicy.sh strict-service --max-failure=3 --lockout-duration=3600 \
+    --min-length=20 --history=10 --safe-modify
+
+# Assign to a specific user (overrides default)
+bash assign-ppolicy.sh svc-jenkins strict-service
+
+# Remove the per-user override (revert to default policy)
+bash assign-ppolicy.sh svc-jenkins --clear
+```
+
+### Operations / diagnostics
+
+```bash
+# HA replication health: contextCSN drift across peers
+bash check-replication.sh ldap://192.168.58.10 ldap://192.168.58.11 ldap://192.168.58.12
+
+# DB sizing snapshot (mapsize, on-disk file, back_monitor stats)
+bash db-stats.sh
+
+# Force purge of cn=accesslog (no slapd restart)
+bash accesslog-purge.sh --keep-hours=24 --dry-run     # count first
+bash accesslog-purge.sh --keep-hours=24
+
+# Audit who can write to a DN
+bash who-can-write.sh "ou=users,dc=example,dc=org"
+
+# Bind activity summary from accesslog (needs olcAccessLogOps: writes bind)
+bash audit-binds.sh --since=24h --top=20
+bash audit-binds.sh --user=john.doe
+```
+
+### Custom OUs
+
+```bash
+bash create-ou.sh apps --description="Application service accounts"
+bash create-ou.sh contractors --parent="ou=users,$BASE_DN" --description="External"
 ```
 
 ## POSIX support
