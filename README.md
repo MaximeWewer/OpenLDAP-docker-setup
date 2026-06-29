@@ -355,6 +355,118 @@ Replace `<mode>` with your deployment directory. On HA, install the cron on **ev
 - Verify next expiry: `openssl x509 -in <mode>/certs/openldap.crt -enddate -noout`.
 - **CA expiry** (3 years by default): plan a manual `--regen-ca` rotation campaign + re-distribution before that date.
 
+## Database storage & sizing
+
+This deployment uses **LMDB (back_mdb)** for every OpenLDAP database. LMDB pre-allocates its data file (`data.mdb`) to a fixed virtual size called the **mapsize** (`olcDbMaxSize`). The file is sparse — it only consumes real disk as data is written — but **no transaction can extend the file past the mapsize**: once reached you get `MDB_MAP_FULL` and every write fails until you raise the limit.
+
+### The 3 databases
+
+| DB | suffix | typical use | default `olcDbMaxSize` | typical growth |
+|----|--------|-------------|------------------------|----------------|
+| `{0}config` | `cn=config` | runtime config (modules, ACLs, overlays) | (small, hard-coded) | none |
+| `{1}mdb` | `dc=example,dc=org` | actual directory data | **1 GiB** | slow (users, groups) |
+| `{2}mdb` | `cn=accesslog` | overlay-written audit log | **1 GiB** | **fast** — every logged op = a write |
+
+The accesslog DB is the one that **blows up** in practice. See below.
+
+### Tuning the accesslog overlay
+
+The `accesslog` overlay logs operations into `cn=accesslog`. Its growth rate is entirely controlled by three attributes on `olcOverlay={N}accesslog,olcDatabase={1}mdb,cn=config`:
+
+| Attribute | Recommended value | Effect |
+|-----------|-------------------|--------|
+| `olcAccessLogOps` | `writes` | Audit only mutations (add/modify/delete). Add `bind` only if you need full auth audit — expect ~10× the volume. |
+| `olcAccessLogSuccess` | `TRUE` | Log only successful operations. `FALSE` logs failures too — every retry, every bad-password bot floods the DB. |
+| `olcAccessLogPurge` | `03+00:00 00+06:00` | Keep 3 days, purge every 6 hours. Default `07+00:00 01+00:00` (7d / 24h) lets the DB grow ~28× larger between purges. |
+
+Example tuning (sane defaults for most deployments):
+
+```bash
+docker exec -i openldap ldapmodify -x -H ldap://localhost:389 \
+  -D 'cn=adminconfig,cn=config' -w "$CONFIG_ADMIN_PASS" <<EOF
+dn: olcOverlay={4}accesslog,olcDatabase={1}mdb,cn=config
+changetype: modify
+replace: olcAccessLogSuccess
+olcAccessLogSuccess: TRUE
+-
+replace: olcAccessLogPurge
+olcAccessLogPurge: 03+00:00 00+06:00
+EOF
+```
+
+(Replace `{4}` with the actual index of your accesslog overlay — find it with `ldapsearch -b 'olcDatabase={1}mdb,cn=config' '(olcOverlay=accesslog)' dn`.)
+
+### Monitoring
+
+```bash
+# DB file size on disk (sparse — can be much smaller than mapsize)
+du -h <mode>/data/openldap-data/data.mdb
+du -h <mode>/data/accesslog-data/data.mdb
+
+# Mapsize (the hard limit) per DB
+docker exec openldap ldapsearch -x -H ldap://localhost:389 \
+  -D 'cn=adminconfig,cn=config' -w "$CONFIG_ADMIN_PASS" \
+  -b 'cn=config' '(objectClass=olcMdbConfig)' olcSuffix olcDbMaxSize
+
+# Live MDB stats (entries, free pages, depth) via back_monitor
+docker exec openldap ldapsearch -x -H ldap://localhost:389 \
+  -D 'cn=adminconfig,cn=config' -w "$CONFIG_ADMIN_PASS" \
+  -b 'cn=Databases,cn=Monitor' '(objectClass=*)'
+```
+
+Set up an alert when `data.mdb` size exceeds ~70% of `olcDbMaxSize`.
+
+### Resizing `olcDbMaxSize` at runtime (no restart)
+
+`olcDbMaxSize` is **live-resizable** — slapd calls `mdb_env_set_mapsize()` and the new limit applies to the next transaction. No restart needed (and no `--reset`). Pick a value you can grow into for the next year.
+
+```bash
+docker exec -i openldap ldapmodify -x -H ldap://localhost:389 \
+  -D 'cn=adminconfig,cn=config' -w "$CONFIG_ADMIN_PASS" <<EOF
+dn: olcDatabase={2}mdb,cn=config
+changetype: modify
+replace: olcDbMaxSize
+olcDbMaxSize: 4294967296
+EOF
+```
+
+> **Cannot reduce live**: shrinking the mapsize requires `slapcat` → wipe `data.mdb` → `slapadd` offline.
+
+### Reclaiming disk space
+
+LMDB never shrinks `data.mdb` once allocated. Even after purges, the file size on disk stays the same (only internal free pages get reused). To physically reclaim:
+
+```bash
+# In a maintenance window (slapd OFF for that DB)
+docker compose stop openldap
+docker run --rm -v ./data:/data alpine sh -c '
+  cd /data &&
+  # dump the live accesslog DB to LDIF and wipe
+  echo "Backup current: $(du -sh accesslog-data/data.mdb)"
+  cp -r accesslog-data accesslog-data.bak
+  rm -rf accesslog-data/*
+'
+# Optionally re-add the accesslog entries via slapadd -n 2 (or just let the overlay rebuild from now)
+docker compose up -d openldap
+```
+
+For the main data DB (`{1}mdb`), the same flow with `slapcat -n 1` + `slapadd -n 1` keeps existing entries.
+
+### Failure mode reference
+
+When `data.mdb` is full you'll see in slapd logs:
+
+```
+mdb_id2entry_put: mdb_put failed: MDB_MAP_FULL: Environment mapsize limit reached(-30792)
+mdb_add: txn_commit failed : MDB_MAP_FULL: Environment mapsize limit reached (-30792)
+```
+
+If `accesslog` is the saturated DB, **every write on the main DB also fails** (the accesslog overlay write is part of the same transaction). That cascades into surprising symptoms — the most common one being **all binds appearing to fail with "Invalid credentials"** because the `ppolicy` overlay can't write its `pwdFailureTime`/`pwdAccountLockedTime` counters.
+
+### HA notes
+
+Each node has its **own** accesslog DB (it's not replicated — it's a per-server transcript fed into delta-syncrepl). Tuning + monitoring must be applied **on every node**. Volume is approximately equal on all peers in steady state because each node logs both its own client writes and the writes it pulls in via syncrepl.
+
 ## Backup & restore
 
 > Store backup files on an encrypted partition — they contain password hashes.

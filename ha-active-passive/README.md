@@ -110,6 +110,10 @@ Test scaffolding (under `tests/`):
 Local data: `init-ldifs/replicator.ldif` (HA-only service account).
 Local TLS material: `certs.sh` + `certs/` (idempotent renewal — see root README for cron). Backup dumps: `backup/`. Pulls from `../base-ldifs/` (shared directory data).
 
+## Database sizing (per node)
+
+Each master node has its **own** `cn=accesslog` DB — not replicated, fed by the local accesslog overlay. Default `olcDbMaxSize: 1 GiB` saturates fast under bind volume, causing `MDB_MAP_FULL` and cascading bind failures (ppolicy can't update its counters). Tune `olcAccessLogOps` / `olcAccessLogSuccess` / `olcAccessLogPurge` **on every master**, and live-resize `olcDbMaxSize` if needed (no restart required). See [root README — Database storage & sizing](../README.md#database-storage--sizing) for the full procedure and monitoring queries.
+
 ## Caveats
 
 - HAProxy `balance first` requires the active master to be detected DOWN before switching; momentary connection failures during the ~15s detection window are normal.

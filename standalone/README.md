@@ -42,3 +42,7 @@ Shared with other modes (parent directory):
 | `certs.sh` + `certs/` | TLS cert generation/renewal (idempotent; see root README for cron) |
 | `backup/` | Backup dump location |
 | `../admin scripts` | Admin scripts (users/groups/service-accounts) |
+
+## Database sizing
+
+Default `olcDbMaxSize: 1 GiB` per DB (main `dc=…`, `cn=accesslog`, `cn=config`). Under bind audit (`olcAccessLogOps: writes bind`), the `cn=accesslog` DB can saturate within weeks — once full (`MDB_MAP_FULL`), writes cascade-fail and **binds appear as "Invalid credentials"** (ppolicy can't update its counters). Tune the accesslog overlay or live-resize `olcDbMaxSize` (no restart). See [root README — Database storage & sizing](../README.md#database-storage--sizing).
