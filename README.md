@@ -231,15 +231,16 @@ Full reference and flags: `openldap-cli <cmd> --help`.
 |                                       | `svcs list`                                                               | list all                                                                                                                                                                       |
 | **Ops & diagnostics** _(config bind)_ | `ops db-stats`                                                            | MDB entries + pages                                                                                                                                                            |
 |                                       | `ops audit-binds [--since 24h] [--user X]`                                | accesslog mining                                                                                                                                                               |
-|                                       | `ops accesslog-purge --keep-days N [--sweep H] [--dry-run]`               | live purge tuning                                                                                                                                                              |
+|                                       | `ops accesslog-purge [--keep-days N] [--sweep DD+HH:MM] [--set SPEC] [--dry-run]` | live purge tuning (writes `olcAccessLogPurge`)                                                                                                                                  |
 |                                       | `ops who-can-write <dn>`                                                  | ACL audit on a DN                                                                                                                                                              |
 |                                       | `ops replication`                                                         | local contextCSN                                                                                                                                                               |
 |                                       | `ops monitor`                                                             | cn=Monitor runtime stats                                                                                                                                                       |
 | **Config**                            | `config db list` / `overlay list` / `acl list <db-dn>` / `limits get/set` | runtime config inspection                                                                                                                                                      |
-|                                       | `config set <dn> <attr> <value>`                                          | live edit any cn=config attribute (olcDbMaxSize, olcRootPW, olcAccessLog\*, olcSyncrepl, …)                                                                                    |
-| **Backup / restore**                  | `backup data`                                                             | export `dc=…` subtree as LDIF (to stdout)                                                                                                                                      |
-|                                       | `backup config`                                                           | export `cn=config` subtree as LDIF                                                                                                                                             |
-|                                       | `backup restore`                                                          | import LDIF (from stdin or file) into the target server                                                                                                                        |
+|                                       | `config db resize <db-dn> <size>`                                         | live olcDbMaxSize change (accepts `4GiB`/`512MiB`/bytes; remaps LMDB env)                                                                                                      |
+|                                       | `config set <dn> <attr> <value>`                                          | live edit any other cn=config attribute (olcRootPW, olcAccessLog\*, olcSyncrepl, …)                                                                                            |
+| **Backup / restore**                  | `backup data <file>`                                                      | export `dc=…` subtree as LDIF (gzipped if `.gz` suffix)                                                                                                                        |
+|                                       | `backup config <file>`                                                    | export `cn=config` subtree as LDIF                                                                                                                                             |
+|                                       | `backup restore <file>`                                                   | import LDIF (gzip auto-detected) into the target server                                                                                                                        |
 | **Schema**                            | `schema list-classes / list-attrs / show <name>`                          | schema browsing                                                                                                                                                                |
 | **General**                           | `whoami`                                                                  | bound identity                                                                                                                                                                 |
 |                                       | `search <filter>`                                                         | raw LDAP search (any `--base`, including `cn=config`)                                                                                                                          |
@@ -457,8 +458,14 @@ The `accesslog` overlay logs operations into `cn=accesslog`. Its growth rate is 
 Example tuning (sane defaults for most deployments):
 
 ```bash
-# Tighten purge retention + sweep interval (live, no restart)
-openldap-cli ops accesslog-purge --keep-days 3 --sweep 6h
+# Tighten purge: keep 3 days, sweep every 6 hours (live, no restart)
+openldap-cli ops accesslog-purge --keep-days 3 --sweep 00+06:00
+
+# Check what would be purged with a tighter window (read-only)
+openldap-cli ops accesslog-purge --keep-days 1 --dry-run
+
+# Or set the exact olcAccessLogPurge spec at once
+openldap-cli ops accesslog-purge --set "03+00:00 00+06:00"
 
 # Locate the accesslog overlay DN (the {N} index varies per deploy)
 OVL_DN=$(openldap-cli config overlay list -o text | awk '/accesslog/ {print $1}' | head -1)
@@ -491,11 +498,15 @@ Set up an alert when page usage from `ops db-stats` exceeds ~70%.
 
 `olcDbMaxSize` is **live-resizable** — slapd calls `mdb_env_set_mapsize()` and the new limit applies to the next transaction. No restart needed (and no `--reset`). Pick a value you can grow into for the next year.
 
+The CLI ships a dedicated command that accepts human-readable sizes (`4GiB`, `512MiB`, or raw bytes):
+
 ```bash
 # Bump cn=accesslog mapsize to 4 GiB (live)
-openldap-cli config set 'olcDatabase={2}mdb,cn=config' olcDbMaxSize 4294967296
+openldap-cli config db resize 'olcDatabase={2}mdb,cn=config' 4GiB
 ```
 
+> **Note**: the resize remaps the LMDB env, which can briefly disrupt slapd under heavy load — quiet hours preferred.
+>
 > **Cannot reduce live**: shrinking the mapsize requires `slapcat` → wipe `data.mdb` → `slapadd` offline.
 
 ### Reclaiming disk space
@@ -553,16 +564,20 @@ For HA, run on **every node** independently (data is replicated, but accesslog i
 
 ### LDIF backup via openldap-cli (recommended)
 
+The CLI takes a **positional file path** (auto-gzips when the suffix is `.gz`):
+
 ```bash
-# Export the data tree (dc=…) as LDIF
-openldap-cli backup data > backup/data_$(date +%Y%m%d).ldif
+# Export the data tree (dc=…) as LDIF, gzipped
+openldap-cli backup data backup/data_$(date +%Y%m%d).ldif.gz
 
 # Export the cn=config tree (ACLs, overlays, schema, syncrepl…)
-openldap-cli backup config > backup/config_$(date +%Y%m%d).ldif
+openldap-cli backup config backup/config_$(date +%Y%m%d).ldif.gz
 
-# Restore (idempotent: imports the LDIF into the target server)
-openldap-cli backup restore < backup/data_YYYYMMDD.ldif
+# Restore (auto-detects gzip; reimports entries into the running server)
+openldap-cli backup restore backup/data_YYYYMMDD.ldif.gz
 ```
+
+For a full-fidelity dump (includes operational attrs `entryUUID`/`entryCSN`/`contextCSN`, not restorable but useful for forensic comparison), add `--operational`.
 
 ### Physical snapshot via tar (offline)
 
@@ -596,11 +611,12 @@ docker compose up -d
 
 ```bash
 # LDIF backup via CLI — recommended (no docker, no root, no slapd restart)
-0 22 * * * openldap-cli backup data   > /path/to/OpenLDAP-docker-setup/<mode>/backup/data_$(date +\%Y\%m\%d).ldif    2>>/var/log/openldap-backup.log
-0 22 * * * openldap-cli backup config > /path/to/OpenLDAP-docker-setup/<mode>/backup/config_$(date +\%Y\%m\%d).ldif  2>>/var/log/openldap-backup.log
+# Positional file path; .ldif.gz auto-gzips the dump.
+0 22 * * * /usr/bin/openldap-cli backup data /path/to/OpenLDAP-docker-setup/<mode>/backup/data_$(date +\%Y\%m\%d).ldif.gz 2>>/var/log/openldap-backup.log
+0 22 * * * /usr/bin/openldap-cli backup config /path/to/OpenLDAP-docker-setup/<mode>/backup/config_$(date +\%Y\%m\%d).ldif.gz 2>>/var/log/openldap-backup.log
 
 # Retention: drop LDIF + tarballs older than 30 days
-0 23 * * * find /path/to/OpenLDAP-docker-setup/<mode>/backup -type f \( -name "*.ldif" -o -name "*.tar.gz" \) -mtime +30 -delete
+0 23 * * * find /path/to/OpenLDAP-docker-setup/<mode>/backup -type f \( -name "*.tar.gz" -o -name "*.ldif" -o -name "*.ldif.gz" \) -mtime +30 -delete
 ```
 
 ---
