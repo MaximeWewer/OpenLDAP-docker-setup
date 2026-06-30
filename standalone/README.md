@@ -37,11 +37,11 @@ Shared with other modes (parent directory):
 
 | Path | Purpose |
 |------|---------|
-| `../common.sh` | Shared bash helpers |
 | `../base-ldifs/` | Base directory data (users, groups, policies) |
 | `certs.sh` + `certs/` | TLS cert generation/renewal (idempotent; see root README for cron) |
 | `backup/` | Backup dump location |
-| `../admin scripts` | Admin scripts (users/groups/service-accounts) |
+
+For day-to-day administration (users, groups, ppolicy, diagnostics) use **[openldap-cli](https://github.com/MaximeWewer/openldap-cli)** — see root README → *Administration — openldap-cli*.
 
 ## Database sizing
 

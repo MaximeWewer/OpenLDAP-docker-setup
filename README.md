@@ -40,7 +40,7 @@ graph TD
 | Identity    | cn=config | cn=accesslog | cn=Monitor |
 | ----------- | --------- | ------------ | ---------- |
 | adminconfig | manage    | read         | read       |
-| *           | -         | -            | -          |
+| \*          | -         | -            | -          |
 
 Users and applications that need read access to `ou=users` or `ou=groups` must use a dedicated service account (see [Service accounts](#service-accounts)).
 
@@ -48,11 +48,11 @@ Users and applications that need read access to `ou=users` or `ou=groups` must u
 
 Pick the layout that matches your availability needs. Each mode is self-contained in its own directory.
 
-| Mode | Directory | Topology | Writes | Read scaling | Use when |
-|------|-----------|----------|--------|--------------|----------|
-| **Standalone** | [`standalone/`](standalone/) | 1 OpenLDAP container | local only | n/a | dev / single-host prod |
-| **HA Active-Passive** | [`ha-active-passive/`](ha-active-passive/) | 2 masters (MirrorMode) + N consumers + HAProxy `first` | active master only | consumer replicas | clean failover, no conflict risk |
-| **HA Active-Active** | [`ha-active-active/`](ha-active-active/) | N masters (N-way Multi-Master) + HAProxy `roundrobin` | any node | any node | max availability, write throughput |
+| Mode                  | Directory                                  | Topology                                               | Writes             | Read scaling      | Use when                           |
+| --------------------- | ------------------------------------------ | ------------------------------------------------------ | ------------------ | ----------------- | ---------------------------------- |
+| **Standalone**        | [`standalone/`](standalone/)               | 1 OpenLDAP container                                   | local only         | n/a               | dev / single-host prod             |
+| **HA Active-Passive** | [`ha-active-passive/`](ha-active-passive/) | 2 masters (MirrorMode) + N consumers + HAProxy `first` | active master only | consumer replicas | clean failover, no conflict risk   |
+| **HA Active-Active**  | [`ha-active-active/`](ha-active-active/)   | N masters (N-way Multi-Master) + HAProxy `roundrobin`  | any node           | any node          | max availability, write throughput |
 
 ```bash
 # Standalone
@@ -75,251 +75,148 @@ Each HA mode boots a 3-VM VirtualBox cluster (`192.168.58.10-12`) running Docker
 
 - Docker & Docker Compose
 - `ldap-utils` (`ldapsearch`, `ldapadd`, `ldapmodify`, `ldapdelete`)
-- `pwgen` (for admin scripts password generation)
+- [openldap-cli](https://github.com/MaximeWewer/openldap-cli) (recommended — for day-to-day admin)
 - VirtualBox + Vagrant (HA modes only — for the test cluster)
 
 ## Default credentials
 
-| Identity | DN | Password |
-|----------|----|----------|
-| Admin user (subject to ACLs) | `cn=admin,ou=users,dc=example,dc=org` | `adminpassword` |
-| Config admin (rootDN) | `cn=adminconfig,cn=config` | `adminpasswordconfig` |
-| Data rootDN | `cn=admin,dc=example,dc=org` | (SSHA-hashed in `slapd-config.ldif`) |
-| Replicator (HA only) | `cn=replicator,ou=service-accounts,dc=example,dc=org` | `replicatorpassword` |
+| Identity                     | DN                                                    | Password                             |
+| ---------------------------- | ----------------------------------------------------- | ------------------------------------ |
+| Admin user (subject to ACLs) | `cn=admin,ou=users,dc=example,dc=org`                 | `adminpassword`                      |
+| Config admin (rootDN)        | `cn=adminconfig,cn=config`                            | `adminpasswordconfig`                |
+| Data rootDN                  | `cn=admin,dc=example,dc=org`                          | (SSHA-hashed in `slapd-config.ldif`) |
+| Replicator (HA only)         | `cn=replicator,ou=service-accounts,dc=example,dc=org` | `replicatorpassword`                 |
 
 > **Change all defaults before production use.** See [Password rotation](#password-rotation) below.
-
-## Project layout
-
-```mermaid
-graph LR
-    root["."]
-    root --> standalone["standalone/<br/><i>mono-instance</i>"]
-    root --> hap["ha-active-passive/<br/><i>MirrorMode + consumer</i>"]
-    root --> haa["ha-active-active/<br/><i>N-way Multi-Master</i>"]
-    root --> shared["Shared resources"]
-
-    shared --> common["common.sh"]
-    shared --> admin_users["users + groups<br/><i>create / change-pwd / delete / rename<br/>list / user-info / unlock / force-reset<br/>modify-attribute / bulk-import / export<br/>group-add-member / group-remove-member</i>"]
-    shared --> admin_svc["service-accounts<br/><i>add / change-pwd / delete</i>"]
-    shared --> admin_ppol["ppolicy<br/><i>set-ppolicy / assign-ppolicy</i>"]
-    shared --> admin_ops["ops & diag<br/><i>check-replication / db-stats<br/>accesslog-purge / who-can-write<br/>audit-binds / create-ou</i>"]
-    shared --> initl["base-ldifs/<br/><i>base directory data (users, groups, ppolicy)</i>"]
-
-    standalone --> sa_compose["docker-compose.yml"]
-    standalone --> sa_setup["setup.sh"]
-    standalone --> sa_cfg["init-config/slapd-config.ldif"]
-    standalone --> sa_ssp["ssp.conf.php"]
-    standalone --> sa_certs["certs.sh + certs/"]
-    standalone --> sa_backup["backup/"]
-
-    hap --> hp_compose["docker-compose.yml"]
-    hap --> hp_setup["setup-node.sh"]
-    hap --> hp_cfg["init-config/<br/>slapd-config.ldif.tmpl"]
-    hap --> hp_ildifs["init-ldifs/replicator.ldif"]
-    hap --> hp_haproxy["haproxy/haproxy.cfg.tmpl"]
-    hap --> hp_env[".env.example"]
-    hap --> hp_certs["certs.sh + certs/"]
-    hap --> hp_backup["backup/"]
-    hap --> hp_tests["tests/<br/><i>Vagrantfile + provision.sh<br/>+ test-replication.sh</i>"]
-
-    haa --> ha_compose["docker-compose.yml"]
-    haa --> ha_setup["setup-node.sh"]
-    haa --> ha_cfg["init-config/<br/>slapd-config.ldif.tmpl"]
-    haa --> ha_ildifs["init-ldifs/replicator.ldif"]
-    haa --> ha_haproxy["haproxy/haproxy.cfg.tmpl"]
-    haa --> ha_env[".env.example"]
-    haa --> ha_certs["certs.sh + certs/"]
-    haa --> ha_backup["backup/"]
-    haa --> ha_tests["tests/<br/><i>Vagrantfile + provision.sh<br/>+ test-replication.sh</i>"]
-```
 
 ## Password rotation
 
 ```bash
-# Change admin user password (cn=admin,ou=users) — uses the admin scripts
-bash change-user-password.sh admin
+# Change admin user password (cn=admin,ou=users) — via openldap-cli (see below)
+openldap-cli user passwd admin
 
 # Change a rootDN password (cn=adminconfig,cn=config OR cn=admin,dc=example,dc=org)
-docker run --rm --entrypoint slappasswd cleanstart/openldap:2.6.13 -s "NEW_PASSWORD"
-ldapmodify -x -H ldap://localhost:389 -D "cn=adminconfig,cn=config" -w "adminpasswordconfig" <<EOF
-dn: olcDatabase={0}config,cn=config
-changetype: modify
-replace: olcRootPW
-olcRootPW: {SSHA}PASTE_HASH_HERE
-EOF
+# rootDN passwords live in slapd-config.ldif as {SSHA} hashes - rotate via the CLI:
+HASH=$(docker run --rm --entrypoint slappasswd cleanstart/openldap:2.6.13 -s "NEW_PASSWORD")
+openldap-cli config set 'olcDatabase={0}config,cn=config' olcRootPW "$HASH"
 ```
 
-> After changing the config admin password, update `CONFIG_ADMIN_PASS` in `common.sh`.
+> After rotating any password, update the corresponding entry in your `~/.openldap-cli.yaml` profile (or the matching `LDAP_*` env var).
 
-## Administration scripts
+## Administration — openldap-cli
 
-Run these from the **repo root**. They connect to `ldap://localhost:389` by default (override `LDAP_HOST`/`LDAP_PORT` in `common.sh` if your deployment is elsewhere — e.g. target a specific HA node).
+Day-to-day directory administration (users, groups, service accounts, ppolicy, ACLs, diagnostics) is handled by a dedicated companion CLI:
 
-All scripts source `common.sh` for shared configuration (`set -euo pipefail`, LDAP connection, helpers). Passwords are never passed via `-w` on the command line (uses `-y` with temp files). Temp files are cleaned up on exit via `trap`.
+> **[github.com/MaximeWewer/openldap-cli](https://github.com/MaximeWewer/openldap-cli)** — a single static Go binary (no runtime, no dependencies).
 
-All scripts use `cn=admin,ou=users,dc=example,dc=org` (subject to ACLs, not the rootDN).
+This repo (`OpenLDAP-docker-setup`) is now only responsible for **bootstrapping and operating the slapd container(s)** (compose, slapadd, TLS certs, HA replication, backup).
 
-Passwords are generated with `pwgen -s -y -r '#<>\ "'"'"' 32` (32 chars, symbols, LDIF-safe).
+### Configure
 
-### Create users
+CLI reads `~/.openldap-cli.yaml` (override with `--config PATH`). Supports multiple **profiles** — handy when you switch between dev (standalone), HA staging, and prod nodes. Example:
 
-Usernames must follow the `firstname.lastname` pattern. The script auto-populates `cn`, `sn`, `givenName`, `displayName`, and `mail`.
-
-```bash
-# Standard (inetOrgPerson only)
-bash create-users.sh john.doe jane.smith --group=demo
-
-# With POSIX attributes (requires nis schema enabled in slapd-config.ldif)
-bash create-users.sh john.doe jane.smith --group=demo --posix
+```yaml
+default: prod
+profiles:
+  dev:
+    url: ldap://localhost:389
+    base_dn: dc=example,dc=org
+    bind_dn: cn=admin,ou=users,dc=example,dc=org
+    bind_pw: adminpassword
+    config_bind_dn: cn=adminconfig,cn=config
+    config_bind_pw: adminpasswordconfig
+  prod:
+    url: ldaps://ldap.example.org:636
+    base_dn: dc=example,dc=org
+    bind_dn: cn=admin-foo,ou=users,dc=example,dc=org
+    bind_pw: ""              # prompt at runtime, or use LDAP_BIND_PW env var
+    config_bind_dn: cn=adminconfig,cn=config
+    config_bind_pw: ""
 ```
 
-### Change user password
+Env-var overrides (one-shot, scriptable): `LDAP_URL`, `LDAP_BASE_DN`, `LDAP_BIND_DN`, `LDAP_BIND_PW`, `LDAP_CONFIG_BIND_DN`, `LDAP_CONFIG_BIND_PW`, `LDAP_USER_OU`, `LDAP_GROUP_OU`, `LDAP_POLICY_OU`, `LDAP_MAIL_DOMAIN`, `LDAP_START_TLS`, `LDAP_INSECURE`.
+
+Profile management:
 
 ```bash
-bash change-user-password.sh john.doe
+openldap-cli profile list
+openldap-cli profile current                      # passwords masked
+openldap-cli profile use dev                      # persist default
+openldap-cli --profile prod user info admin-foo   # one-off override
 ```
 
-### Delete users
+### Two-bind architecture
 
-Automatically removes the user from all groups before deletion:
+- **data bind** (`bind_dn`) — used for ACL-checked ops on `dc=…` (create/modify users, groups, etc.)
+- **config bind** (`config_bind_dn`) — required for cn=config / ACL / overlay / monitor operations
 
-```bash
-bash delete-users.sh john.doe jane.smith
-```
+### Command reference (summary)
 
-### Create group
+Full reference and flags: `openldap-cli <cmd> --help`.
 
-At least one member is required (`groupOfNames` schema constraint):
+| Domain                                | Command                                                                   | Description                                                                                                                                                                    |
+| ------------------------------------- | ------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **Users (single)**                    | `user add <login>`                                                        | create with derived attrs + strong password                                                                                                                                    |
+|                                       | `user delete <login>`                                                     | remove user (refint cleans groups)                                                                                                                                             |
+|                                       | `user info <login>`                                                       | identity + groups + lockout + policy                                                                                                                                           |
+|                                       | `user passwd <login>`                                                     | Password Modify ext (ppolicy hashing)                                                                                                                                          |
+|                                       | `user set <login> <attr> [val]`                                           | replace or delete attribute                                                                                                                                                    |
+|                                       | `user rename <old> <new>`                                                 | modrdn + refresh derived attrs                                                                                                                                                 |
+|                                       | `user unlock <login>`                                                     | clear pwdAccountLockedTime                                                                                                                                                     |
+|                                       | `user force-reset <login>`                                                | set / clear `pwdReset`                                                                                                                                                         |
+|                                       | `user move <login> <new-parent-dn>`                                       | relocate to another OU                                                                                                                                                         |
+| **Users (bulk)**                      | `users list`                                                              | filter `--group/--locked/--posix`                                                                                                                                              |
+|                                       | `users delete`                                                            | batch by list or selector (`--yes`)                                                                                                                                            |
+|                                       | `users unlock`                                                            | batch unlock                                                                                                                                                                   |
+|                                       | `users force-reset`                                                       | batch reset flag                                                                                                                                                               |
+|                                       | `users set <attr> <value>`                                                | batch attr modify                                                                                                                                                              |
+|                                       | `users passwd`                                                            | batch fresh password                                                                                                                                                           |
+|                                       | `users import <csv>`                                                      | bulk create (firstname.lastname)                                                                                                                                               |
+|                                       | `users export`                                                            | CSV / `--ldif` / `--with-hash`                                                                                                                                                 |
+| **Groups**                            | `group create / info / delete <name>`                                     | individual ops                                                                                                                                                                 |
+|                                       | `group add-member / remove-member <group> <login>`                        | membership                                                                                                                                                                     |
+|                                       | `groups list [--members]`                                                 | list all                                                                                                                                                                       |
+|                                       | `groups delete <names>`                                                   | batch removal                                                                                                                                                                  |
+| **OUs**                               | `ou create / list / delete`                                               | structure mgmt                                                                                                                                                                 |
+| **Password policies** _(rootDN bind)_ | `ppolicy set <name> [flags]`                                              | `--min-length`, `--max-age`, `--expire-warning`, `--in-history`, `--max-failure`, `--lockout-duration`, `--check-quality`, `--lockout`, `--must-change`, `--allow-user-change` |
+|                                       | `ppolicy assign <login> <policy>`                                         | per-user override                                                                                                                                                              |
+|                                       | `ppolicy list / show / delete`                                            | inspection                                                                                                                                                                     |
+| **Service accounts**                  | `svc add <name> --subtree <dn> --access read\|write`                      | account + injected ACL                                                                                                                                                         |
+|                                       | `svc passwd / delete / info <name>`                                       | rotation / cleanup / ACL audit                                                                                                                                                 |
+|                                       | `svcs list`                                                               | list all                                                                                                                                                                       |
+| **Ops & diagnostics** _(config bind)_ | `ops db-stats`                                                            | MDB entries + pages                                                                                                                                                            |
+|                                       | `ops audit-binds [--since 24h] [--user X]`                                | accesslog mining                                                                                                                                                               |
+|                                       | `ops accesslog-purge --keep-days N [--sweep H] [--dry-run]`               | live purge tuning                                                                                                                                                              |
+|                                       | `ops who-can-write <dn>`                                                  | ACL audit on a DN                                                                                                                                                              |
+|                                       | `ops replication`                                                         | local contextCSN                                                                                                                                                               |
+|                                       | `ops monitor`                                                             | cn=Monitor runtime stats                                                                                                                                                       |
+| **Config**                            | `config db list` / `overlay list` / `acl list <db-dn>` / `limits get/set` | runtime config inspection                                                                                                                                                      |
+|                                       | `config set <dn> <attr> <value>`                                          | live edit any cn=config attribute (olcDbMaxSize, olcRootPW, olcAccessLog\*, olcSyncrepl, …)                                                                                    |
+| **Backup / restore**                  | `backup data`                                                             | export `dc=…` subtree as LDIF (to stdout)                                                                                                                                      |
+|                                       | `backup config`                                                           | export `cn=config` subtree as LDIF                                                                                                                                             |
+|                                       | `backup restore`                                                          | import LDIF (from stdin or file) into the target server                                                                                                                        |
+| **Schema**                            | `schema list-classes / list-attrs / show <name>`                          | schema browsing                                                                                                                                                                |
+| **General**                           | `whoami`                                                                  | bound identity                                                                                                                                                                 |
+|                                       | `search <filter>`                                                         | raw LDAP search escape hatch                                                                                                                                                   |
+|                                       | `import-ldif <file>`                                                      | bulk LDIF entry creation                                                                                                                                                       |
+|                                       | `version`                                                                 | binary version                                                                                                                                                                 |
 
-```bash
-bash create-group.sh groupName john.doe jane.smith
-```
+### Global flags
 
-### Service accounts
+- `-o, --output text\|json\|yaml` — machine-friendly output
+- `--log-level trace\|debug\|info\|warn\|error` — verbosity (stderr)
+- `--log-format console\|json` — log style
 
-Create a service account with specific access rights. The script creates the account in `ou=service-accounts` and injects the access rule into the existing ACL for the target subtree:
-
-```bash
-# Read access to ou=users
-bash add-service-account.sh gitea --access read --subtree "ou=users,dc=example,dc=org"
-
-# Write access to ou=groups
-bash add-service-account.sh myapp --access write --subtree "ou=groups,dc=example,dc=org"
-```
-
-Change password:
-
-```bash
-bash change-service-account-password.sh gitea
-```
-
-Delete (also cleans up ACL references):
-
-```bash
-bash delete-service-account.sh gitea
-```
-
-### Group membership
-
-```bash
-# Add members to an existing group
-bash group-add-member.sh demo john.doe jane.smith
-
-# Remove members (group must keep ≥1 member — groupOfNames constraint)
-bash group-remove-member.sh demo john.doe
-```
-
-### Account lifecycle / status
-
-```bash
-# Reset ppolicy lockout + failure counter (after brute-force / typo storm)
-bash unlock-user.sh john.doe
-
-# Force pwd change at next login (onboarding / suspicion of leak)
-bash force-password-reset.sh john.doe
-
-# Modify a single attribute
-bash modify-user-attribute.sh john.doe mail john.doe@example.org
-bash modify-user-attribute.sh john.doe telephoneNumber "+33 1 23 45 67 89"
-bash modify-user-attribute.sh john.doe description --delete-all
-
-# Rename: modrdn + refresh derived attrs (uid, mail, sn, givenName, displayName).
-# Group memberships migrate automatically via the refint overlay.
-bash rename-user.sh john.doe john.duponta
-
-# Full snapshot: identity + groups + ppolicy state + derived status
-bash user-info.sh john.doe
-```
-
-### Listing & search
+### Typical day-1 sequence after standalone bootstrap
 
 ```bash
-# All users (cn, uid, mail, displayName, memberOf)
-bash list-users.sh
-
-# Filtered
-bash list-users.sh --group=admin           # only members of cn=admin,ou=groups
-bash list-users.sh --locked                # only locked accounts
-bash list-users.sh --posix                 # only POSIX users
-bash list-users.sh --full                  # all attributes
-
-# Groups
-bash list-groups.sh
-bash list-groups.sh --with-members
-```
-
-### Bulk import / export
-
-```bash
-# Import from CSV (rows: firstname.lastname[,group][,mail-override])
-bash bulk-import-users.sh users.csv --group=demo
-
-# Export users to CSV
-bash export-users.sh --out=users-export.csv
-bash export-users.sh --with-hash --out=full.csv   # include userPassword (admin-only)
-```
-
-### Password policies
-
-```bash
-# Create / update a named policy
-bash set-ppolicy.sh strict-service --max-failure=3 --lockout-duration=3600 \
-    --min-length=20 --history=10 --safe-modify
-
-# Assign to a specific user (overrides default)
-bash assign-ppolicy.sh svc-jenkins strict-service
-
-# Remove the per-user override (revert to default policy)
-bash assign-ppolicy.sh svc-jenkins --clear
-```
-
-### Operations / diagnostics
-
-```bash
-# HA replication health: contextCSN drift across peers
-bash check-replication.sh ldap://192.168.58.10 ldap://192.168.58.11 ldap://192.168.58.12
-
-# DB sizing snapshot (mapsize, on-disk file, back_monitor stats)
-bash db-stats.sh
-
-# Force purge of cn=accesslog (no slapd restart)
-bash accesslog-purge.sh --keep-hours=24 --dry-run     # count first
-bash accesslog-purge.sh --keep-hours=24
-
-# Audit who can write to a DN
-bash who-can-write.sh "ou=users,dc=example,dc=org"
-
-# Bind activity summary from accesslog (needs olcAccessLogOps: writes bind)
-bash audit-binds.sh --since=24h --top=20
-bash audit-binds.sh --user=john.doe
-```
-
-### Custom OUs
-
-```bash
-bash create-ou.sh apps --description="Application service accounts"
-bash create-ou.sh contractors --parent="ou=users,$BASE_DN" --description="External"
+cd standalone && bash setup.sh                    # this repo
+openldap-cli --profile dev whoami                 # confirm bind
+openldap-cli user passwd admin                    # rotate the default admin
+openldap-cli user add john.doe                    # onboard
+openldap-cli group add-member demo john.doe
+openldap-cli svc add gitea --subtree "ou=users,dc=example,dc=org" --access read
+openldap-cli ops db-stats                         # sanity check
 ```
 
 ## POSIX support
@@ -381,10 +278,22 @@ command: ["slapd", "-d", "0", "-h", "ldap:// ldaps://", "-F", "/etc/openldap/sla
 5. Test (from inside your mode directory):
 
 ```bash
-LDAPTLS_CACERT=./certs/openldapCA.crt ldapsearch -x -H ldaps://localhost:636 -D "cn=admin,ou=users,dc=example,dc=org" -w "adminpassword" -b "dc=example,dc=org"
+# Via the CLI: temporarily target ldaps:// + trust the local CA
+LDAP_URL=ldaps://localhost:636 LDAPTLS_CACERT=./certs/openldapCA.crt \
+  openldap-cli search '(objectClass=*)' --base 'dc=example,dc=org' -s base
+
+# Or raw, when you specifically want to inspect the TLS handshake itself:
+LDAPTLS_CACERT=./certs/openldapCA.crt ldapsearch -x -H ldaps://localhost:636 \
+  -D "cn=admin,ou=users,dc=example,dc=org" -w "adminpassword" -b "dc=example,dc=org"
 ```
 
-> **Note**: If TLS is enabled after initial setup (without `--reset`), you can add the TLS config at runtime via `ldapmodify` on `cn=config` without re-bootstrapping.
+> **Note**: If TLS is enabled after initial setup (without `--reset`), you can add the TLS config at runtime via `openldap-cli config set` on `cn=config` (no restart):
+>
+> ```bash
+> openldap-cli config set 'cn=config' olcTLSCACertificateFile /etc/openldap/certs/openldapCA.crt
+> openldap-cli config set 'cn=config' olcTLSCertificateFile   /etc/openldap/certs/openldap.crt
+> openldap-cli config set 'cn=config' olcTLSCertificateKeyFile /etc/openldap/certs/openldap.key
+> ```
 
 ### Certificate renewal
 
@@ -460,11 +369,11 @@ This deployment uses **LMDB (back_mdb)** for every OpenLDAP database. LMDB pre-a
 
 ### The 3 databases
 
-| DB | suffix | typical use | default `olcDbMaxSize` | typical growth |
-|----|--------|-------------|------------------------|----------------|
-| `{0}config` | `cn=config` | runtime config (modules, ACLs, overlays) | (small, hard-coded) | none |
-| `{1}mdb` | `dc=example,dc=org` | actual directory data | **1 GiB** | slow (users, groups) |
-| `{2}mdb` | `cn=accesslog` | overlay-written audit log | **1 GiB** | **fast** — every logged op = a write |
+| DB          | suffix              | typical use                              | default `olcDbMaxSize` | typical growth                       |
+| ----------- | ------------------- | ---------------------------------------- | ---------------------- | ------------------------------------ |
+| `{0}config` | `cn=config`         | runtime config (modules, ACLs, overlays) | (small, hard-coded)    | none                                 |
+| `{1}mdb`    | `dc=example,dc=org` | actual directory data                    | **1 GiB**              | slow (users, groups)                 |
+| `{2}mdb`    | `cn=accesslog`      | overlay-written audit log                | **1 GiB**              | **fast** — every logged op = a write |
 
 The accesslog DB is the one that **blows up** in practice. See below.
 
@@ -472,61 +381,52 @@ The accesslog DB is the one that **blows up** in practice. See below.
 
 The `accesslog` overlay logs operations into `cn=accesslog`. Its growth rate is entirely controlled by three attributes on `olcOverlay={N}accesslog,olcDatabase={1}mdb,cn=config`:
 
-| Attribute | Recommended value | Effect |
-|-----------|-------------------|--------|
-| `olcAccessLogOps` | `writes` | Audit only mutations (add/modify/delete). Add `bind` only if you need full auth audit — expect ~10× the volume. |
-| `olcAccessLogSuccess` | `TRUE` | Log only successful operations. `FALSE` logs failures too — every retry, every bad-password bot floods the DB. |
-| `olcAccessLogPurge` | `03+00:00 00+06:00` | Keep 3 days, purge every 6 hours. Default `07+00:00 01+00:00` (7d / 24h) lets the DB grow ~28× larger between purges. |
+| Attribute             | Recommended value   | Effect                                                                                                                |
+| --------------------- | ------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| `olcAccessLogOps`     | `writes`            | Audit only mutations (add/modify/delete). Add `bind` only if you need full auth audit — expect ~10× the volume.       |
+| `olcAccessLogSuccess` | `TRUE`              | Log only successful operations. `FALSE` logs failures too — every retry, every bad-password bot floods the DB.        |
+| `olcAccessLogPurge`   | `03+00:00 00+06:00` | Keep 3 days, purge every 6 hours. Default `07+00:00 01+00:00` (7d / 24h) lets the DB grow ~28× larger between purges. |
 
 Example tuning (sane defaults for most deployments):
 
 ```bash
-docker exec -i openldap ldapmodify -x -H ldap://localhost:389 \
-  -D 'cn=adminconfig,cn=config' -w "$CONFIG_ADMIN_PASS" <<EOF
-dn: olcOverlay={4}accesslog,olcDatabase={1}mdb,cn=config
-changetype: modify
-replace: olcAccessLogSuccess
-olcAccessLogSuccess: TRUE
--
-replace: olcAccessLogPurge
-olcAccessLogPurge: 03+00:00 00+06:00
-EOF
-```
+# Tighten purge retention + sweep interval (live, no restart)
+openldap-cli ops accesslog-purge --keep-days 3 --sweep 6h
 
-(Replace `{4}` with the actual index of your accesslog overlay — find it with `ldapsearch -b 'olcDatabase={1}mdb,cn=config' '(olcOverlay=accesslog)' dn`.)
+# Locate the accesslog overlay DN (the {N} index varies per deploy)
+OVL_DN=$(openldap-cli config overlay list -o text | awk '/accesslog/ {print $1}' | head -1)
+
+# Switch to success-only logging + drop bind logging
+openldap-cli config set "$OVL_DN" olcAccessLogSuccess TRUE
+openldap-cli config set "$OVL_DN" olcAccessLogOps writes
+```
 
 ### Monitoring
 
 ```bash
-# DB file size on disk (sparse — can be much smaller than mapsize)
-du -h <mode>/data/openldap-data/data.mdb
-du -h <mode>/data/accesslog-data/data.mdb
+# Per-DB MDB stats: entry count + page usage percentage + on-disk hints
+openldap-cli ops db-stats
+
+# Full cn=Monitor dump (connections, operations, threads, waiters)
+openldap-cli ops monitor
 
 # Mapsize (the hard limit) per DB
-docker exec openldap ldapsearch -x -H ldap://localhost:389 \
-  -D 'cn=adminconfig,cn=config' -w "$CONFIG_ADMIN_PASS" \
-  -b 'cn=config' '(objectClass=olcMdbConfig)' olcSuffix olcDbMaxSize
+openldap-cli config db list
 
-# Live MDB stats (entries, free pages, depth) via back_monitor
-docker exec openldap ldapsearch -x -H ldap://localhost:389 \
-  -D 'cn=adminconfig,cn=config' -w "$CONFIG_ADMIN_PASS" \
-  -b 'cn=Databases,cn=Monitor' '(objectClass=*)'
+# Optional: physical file size on disk (sparse — can be much smaller than mapsize)
+du -h <mode>/data/openldap-data/data.mdb
+du -h <mode>/data/accesslog-data/data.mdb
 ```
 
-Set up an alert when `data.mdb` size exceeds ~70% of `olcDbMaxSize`.
+Set up an alert when page usage from `ops db-stats` exceeds ~70%.
 
 ### Resizing `olcDbMaxSize` at runtime (no restart)
 
 `olcDbMaxSize` is **live-resizable** — slapd calls `mdb_env_set_mapsize()` and the new limit applies to the next transaction. No restart needed (and no `--reset`). Pick a value you can grow into for the next year.
 
 ```bash
-docker exec -i openldap ldapmodify -x -H ldap://localhost:389 \
-  -D 'cn=adminconfig,cn=config' -w "$CONFIG_ADMIN_PASS" <<EOF
-dn: olcDatabase={2}mdb,cn=config
-changetype: modify
-replace: olcDbMaxSize
-olcDbMaxSize: 4294967296
-EOF
+# Bump cn=accesslog mapsize to 4 GiB (live)
+openldap-cli config set 'olcDatabase={2}mdb,cn=config' olcDbMaxSize 4294967296
 ```
 
 > **Cannot reduce live**: shrinking the mapsize requires `slapcat` → wipe `data.mdb` → `slapadd` offline.
@@ -570,89 +470,89 @@ Each node has its **own** accesslog DB (it's not replicated — it's a per-serve
 
 > Store backup files on an encrypted partition — they contain password hashes.
 
-All commands below assume you `cd <mode>` first (standalone, ha-active-active, or ha-active-passive). Each mode has its own `data/` and `backup/`. For HA, run the backup on each node.
+Two complementary approaches:
 
-### Backup
+|                                    | LDIF (logical) — recommended             | tar (physical snapshot) — fallback       |
+| ---------------------------------- | ---------------------------------------- | ---------------------------------------- |
+| Tool                               | `openldap-cli backup` (online, via LDAP) | `tar` in alpine (offline, files on disk) |
+| Portable across slapd versions     | yes                                      | no (MDB format tied to version)          |
+| Server must be running             | yes                                      | no (best taken with slapd stopped)       |
+| Captures runtime state (accesslog) | partial (data + config)                  | full (every byte of `data.mdb`)          |
+| Restore granularity                | per-entry / subtree                      | all-or-nothing per DB                    |
 
-Since `cleanstart/openldap` has no shell, backups are done via `tar` in an alpine container:
+For HA, run on **every node** independently (data is replicated, but accesslog is per-node).
+
+### LDIF backup via openldap-cli (recommended)
 
 ```bash
-cd <mode>
+# Export the data tree (dc=…) as LDIF
+openldap-cli backup data > backup/data_$(date +%Y%m%d).ldif
 
-# Config backup
-docker run --rm -v ./data/slapd.d:/slapd.d:ro -v ./backup:/backup alpine:latest \
-  sh -c "tar czf /backup/config_$(date +%Y%m%d).tar.gz -C /slapd.d ."
+# Export the cn=config tree (ACLs, overlays, schema, syncrepl…)
+openldap-cli backup config > backup/config_$(date +%Y%m%d).ldif
 
-# Data backup
-docker run --rm -v ./data/openldap-data:/data:ro -v ./backup:/backup alpine:latest \
-  sh -c "tar czf /backup/data_$(date +%Y%m%d).tar.gz -C /data ."
-
-# Accesslog backup
-docker run --rm -v ./data/accesslog-data:/data:ro -v ./backup:/backup alpine:latest \
-  sh -c "tar czf /backup/accesslog_$(date +%Y%m%d).tar.gz -C /data ."
+# Restore (idempotent: imports the LDIF into the target server)
+openldap-cli backup restore < backup/data_YYYYMMDD.ldif
 ```
 
-### Restore
+### Physical snapshot via tar (offline)
+
+Useful when you want to clone a server byte-for-byte (e.g., move between hosts) or capture cn=accesslog state including indexes. Requires `cd <mode>` first.
 
 ```bash
 cd <mode>
-docker compose down
 
-# Clean existing data
+# Config / data / accesslog snapshots (slapd can be running — MDB is crash-safe,
+# but a stopped slapd gives a guaranteed-consistent snapshot)
+docker run --rm -v ./data/slapd.d:/slapd.d:ro -v ./backup:/backup alpine:latest \
+  sh -c "tar czf /backup/config_$(date +%Y%m%d).tar.gz -C /slapd.d ."
+docker run --rm -v ./data/openldap-data:/data:ro -v ./backup:/backup alpine:latest \
+  sh -c "tar czf /backup/data_$(date +%Y%m%d).tar.gz -C /data ."
+docker run --rm -v ./data/accesslog-data:/data:ro -v ./backup:/backup alpine:latest \
+  sh -c "tar czf /backup/accesslog_$(date +%Y%m%d).tar.gz -C /data ."
+
+# Restore: stop slapd, wipe, extract, fix perms, restart
+docker compose down
 docker run --rm -v ./data:/data alpine:latest \
   sh -c "rm -rf /data/slapd.d/* /data/openldap-data/* /data/accesslog-data/*"
-
-# Restore config
-docker run --rm -v ./data/slapd.d:/slapd.d -v ./backup:/backup alpine:latest \
-  sh -c "tar xzf /backup/config_DATE.tar.gz -C /slapd.d"
-
-# Restore data
-docker run --rm -v ./data/openldap-data:/data -v ./backup:/backup alpine:latest \
-  sh -c "tar xzf /backup/data_DATE.tar.gz -C /data"
-
-# Restore accesslog
-docker run --rm -v ./data/accesslog-data:/data -v ./backup:/backup alpine:latest \
-  sh -c "tar xzf /backup/accesslog_DATE.tar.gz -C /data"
-
-# Fix permissions
-docker run --rm \
-  -v ./data/slapd.d:/slapd.d \
-  -v ./data/openldap-data:/data \
-  -v ./data/accesslog-data:/alog \
-  alpine:latest sh -c "chown -R 101:102 /slapd.d /data /alog"
-
+docker run --rm -v ./data/slapd.d:/slapd.d        -v ./backup:/backup alpine:latest sh -c "tar xzf /backup/config_DATE.tar.gz -C /slapd.d"
+docker run --rm -v ./data/openldap-data:/data     -v ./backup:/backup alpine:latest sh -c "tar xzf /backup/data_DATE.tar.gz -C /data"
+docker run --rm -v ./data/accesslog-data:/data    -v ./backup:/backup alpine:latest sh -c "tar xzf /backup/accesslog_DATE.tar.gz -C /data"
+docker run --rm -v ./data/slapd.d:/slapd.d -v ./data/openldap-data:/data -v ./data/accesslog-data:/alog alpine:latest \
+  sh -c "chown -R 101:102 /slapd.d /data /alog"
 docker compose up -d
 ```
 
 ### Cronjob
 
-Replace `<mode>` with your actual deployment dir (standalone, ha-active-active, ha-active-passive):
-
 ```bash
-# Daily backup at 10 PM + cleanup after 30 days
-0 22 * * * cd /path/to/OpenLDAP-docker-setup/<mode> && docker run --rm -v ./data/slapd.d:/slapd.d:ro -v ./backup:/backup alpine:latest sh -c "tar czf /backup/config_$(date +\%Y\%m\%d).tar.gz -C /slapd.d ."
-0 22 * * * cd /path/to/OpenLDAP-docker-setup/<mode> && docker run --rm -v ./data/openldap-data:/data:ro -v ./backup:/backup alpine:latest sh -c "tar czf /backup/data_$(date +\%Y\%m\%d).tar.gz -C /data ."
-0 22 * * * cd /path/to/OpenLDAP-docker-setup/<mode> && docker run --rm -v ./data/accesslog-data:/data:ro -v ./backup:/backup alpine:latest sh -c "tar czf /backup/accesslog_$(date +\%Y\%m\%d).tar.gz -C /data ."
-0 23 * * * find /path/to/OpenLDAP-docker-setup/<mode>/backup -name "*.tar.gz" -mtime +30 -delete
+# LDIF backup via CLI — recommended (no docker, no root, no slapd restart)
+0 22 * * * openldap-cli backup data   > /path/to/OpenLDAP-docker-setup/<mode>/backup/data_$(date +\%Y\%m\%d).ldif    2>>/var/log/openldap-backup.log
+0 22 * * * openldap-cli backup config > /path/to/OpenLDAP-docker-setup/<mode>/backup/config_$(date +\%Y\%m\%d).ldif  2>>/var/log/openldap-backup.log
+
+# Retention: drop LDIF + tarballs older than 30 days
+0 23 * * * find /path/to/OpenLDAP-docker-setup/<mode>/backup -type f \( -name "*.ldif" -o -name "*.tar.gz" \) -mtime +30 -delete
 ```
 
 ## LDAP commands reference
 
+Most things go through `openldap-cli`. `search` accepts an arbitrary `--base` so any subtree (including `cn=config`) is reachable without dropping to raw `ldapsearch`.
+
 ```bash
-# List all entries
-ldapsearch -x -H ldap://localhost:389 -D "cn=admin,ou=users,dc=example,dc=org" -w "adminpassword" -b "dc=example,dc=org"
+# List all entries under the base DN
+openldap-cli search '(objectClass=*)' --base 'dc=example,dc=org'
 
-# List modules
-ldapsearch -x -H ldap://localhost:389 -D "cn=adminconfig,cn=config" -w "adminpasswordconfig" \
-  -b cn=config "(objectClass=olcModuleList)" olcModuleLoad -LLL
+# View overlays / databases / ACLs (cn=config bind)
+openldap-cli config overlay list
+openldap-cli config db list
+openldap-cli config acl list 'olcDatabase={1}mdb,cn=config'
 
-# View ACLs
-ldapsearch -x -H ldap://localhost:389 -D "cn=adminconfig,cn=config" -w "adminpasswordconfig" \
-  -b "olcDatabase={1}mdb,cn=config" olcAccess -LLL
+# List loaded modules (search on cn=config)
+openldap-cli search '(objectClass=olcModuleList)' --base cn=config olcModuleLoad
 
-# Test service account access
-ldapsearch -x -H ldap://localhost:389 -D "cn=gitea,ou=service-accounts,dc=example,dc=org" -w "PASSWORD" \
-  -b "ou=users,dc=example,dc=org" "(uid=john.doe)" cn mail
+# Test a service account's view of users (one-shot bind override via env)
+LDAP_BIND_DN='cn=gitea,ou=service-accounts,dc=example,dc=org' LDAP_BIND_PW='PASSWORD' \
+  openldap-cli search '(uid=john.doe)' --base 'ou=users,dc=example,dc=org'
 ```
 
 ## Integration example (Zitadel, Gitea, etc.)
@@ -660,7 +560,7 @@ ldapsearch -x -H ldap://localhost:389 -D "cn=gitea,ou=service-accounts,dc=exampl
 Create a dedicated service account instead of using the admin account:
 
 ```bash
-bash add-service-account.sh myapp --access read --subtree "ou=users,dc=example,dc=org"
+openldap-cli svc add myapp --access read --subtree "ou=users,dc=example,dc=org"
 ```
 
 Then configure your application with:
@@ -681,11 +581,12 @@ Then configure your application with:
 
 ## Monitoring
 
-The `back_monitor` module is enabled in `slapd-config.ldif`. It exposes server statistics via `cn=Monitor` (connections, operations, threads, etc.), accessible with the config admin credentials:
+The `back_monitor` module is enabled in `slapd-config.ldif`. It exposes server statistics via `cn=Monitor` (connections, operations, threads, MDB pages, etc.). Query via the CLI:
 
 ```bash
-ldapsearch -x -H ldap://localhost:389 -D "cn=adminconfig,cn=config" -w "adminpasswordconfig" \
-  -b "cn=Monitor" "(objectClass=*)" -LLL
+openldap-cli ops monitor                # full cn=Monitor dump
+openldap-cli ops db-stats               # focused on back_mdb (entries, pages, % used)
+openldap-cli ops replication            # local contextCSN per database
 ```
 
 To expose these metrics to Prometheus, use the [OpenLDAP Prometheus Exporter](https://github.com/MaximeWewer/OpenLDAP_prometheus_exporter). It connects to `cn=Monitor` and serves metrics on an HTTP endpoint for Prometheus scraping.

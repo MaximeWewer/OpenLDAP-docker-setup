@@ -1,11 +1,20 @@
 #!/bin/bash
+# Bootstrap the standalone OpenLDAP deployment:
+#   - slapadd cn=config from init-config/
+#   - slapadd initial data from ../base-ldifs/
+#   - fix permissions and start docker compose
 set -euo pipefail
 
 # === Configuration ===
-# We source common.sh for shared variables but override what's needed
-source "$(dirname "$0")/../common.sh"
+IMAGE="cleanstart/openldap:2.6.13"
+LDAP_UID=101
+LDAP_GID=102
+LDAP_HOST="localhost"
+LDAP_PORT="389"
+BASE_DN="dc=example,dc=org"
+LOCAL_ADMIN_DN="cn=admin,ou=users,$BASE_DN"
+CONFIG_ADMIN="cn=adminconfig,cn=config"
 
-IMAGE="$OPENLDAP_IMAGE"
 SLAPD_DIR="./data/slapd.d"
 DATA_DIR="./data/openldap-data"
 ACCESSLOG_DIR="./data/accesslog-data"
@@ -42,7 +51,7 @@ docker run --rm --user root \
 # === Step 2: Build combined data LDIF ===
 echo "=== Loading initial data ==="
 TMP_DIR=$(mktemp -d)
-register_tmpfile "$TMP_DIR"
+trap 'rm -rf "$TMP_DIR"' EXIT
 {
   for ldif in \
     ../base-ldifs/01-base.ldif \
@@ -95,3 +104,6 @@ echo "  Base DN:         $BASE_DN"
 echo "  LDAP:            ldap://${LDAP_HOST}:${LDAP_PORT}"
 echo "  phpLDAPadmin:    http://localhost:8080"
 echo "  SSP:             http://localhost:8088"
+echo ""
+echo "For day-to-day admin (users, groups, ppolicy, diagnostics), use openldap-cli:"
+echo "  https://github.com/MaximeWewer/openldap-cli"
