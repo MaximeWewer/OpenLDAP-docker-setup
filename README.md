@@ -2,16 +2,67 @@
 
 A streamlined way to deploy an **[OpenLDAP](https://openldap.org/)** server along with **[phpLDAPadmin](https://github.com/leenooks/phpLDAPadmin)** and **[Self Service Password](https://github.com/ltb-project/self-service-password)** using Docker Compose. Built on the minimal [cleanstart/openldap](https://hub.docker.com/r/cleanstart/openldap) image (OpenLDAP 2.6).
 
-## Key features
+Day-to-day directory administration is handled by the companion CLI **[openldap-cli](https://github.com/MaximeWewer/openldap-cli)**.
+
+---
+
+## Table of contents
+
+- [Overview](#overview)
+  - [Key features](#key-features)
+  - [Architecture](#architecture)
+  - [Deployment modes](#deployment-modes)
+- [Getting started](#getting-started)
+  - [Prerequisites](#prerequisites)
+  - [Quick start](#quick-start)
+  - [Default credentials](#default-credentials)
+- [Administration — openldap-cli](#administration--openldap-cli)
+  - [Configure](#configure)
+  - [Two-bind architecture](#two-bind-architecture)
+  - [Command reference](#command-reference)
+  - [Global flags](#global-flags)
+  - [Day-1 sequence](#day-1-sequence)
+  - [LDAP commands cheat-sheet](#ldap-commands-cheat-sheet)
+- [Password rotation](#password-rotation)
+- [TLS / LDAPS](#tls--ldaps)
+  - [Enable TLS](#enable-tls)
+  - [Certificate renewal](#certificate-renewal)
+  - [HA: shared CA across nodes](#ha-shared-ca-across-nodes)
+  - [Cron — automatic renewal](#cron--automatic-renewal)
+- [Database storage & sizing](#database-storage--sizing)
+  - [The 3 databases](#the-3-databases)
+  - [Tuning the accesslog overlay](#tuning-the-accesslog-overlay)
+  - [Monitoring](#monitoring)
+  - [Resizing `olcDbMaxSize` at runtime](#resizing-olcdbmaxsize-at-runtime)
+  - [Reclaiming disk space](#reclaiming-disk-space)
+  - [Failure mode reference](#failure-mode-reference)
+  - [HA notes](#ha-notes)
+- [Backup & restore](#backup--restore)
+  - [LDIF backup via openldap-cli (recommended)](#ldif-backup-via-openldap-cli-recommended)
+  - [Physical snapshot via tar (offline)](#physical-snapshot-via-tar-offline)
+  - [Cronjob](#cronjob)
+- [Prometheus monitoring](#prometheus-monitoring)
+- [POSIX support](#posix-support)
+- [Password policy](#password-policy)
+- [Integration examples](#integration-examples)
+
+---
+
+## Overview
+
+### Key features
 
 - **Minimal image**: Uses `cleanstart/openldap` — no shell, no bootstrap scripts, full control via `slapadd`
 - **Secure by default**: Least-privilege ACLs per OU, SSHA-hashed rootDN passwords, ECDSA P-384 TLS certificates, isolated Docker network
-- **Pre-configured overlays**: memberof, referential integrity, password policy, dynamic lists
-- **Service accounts**: Dedicated OU with per-account ACL injection via scripts
-- **POSIX optional**: POSIX support (posixAccount/shadowAccount) available via opt-in flag
-- **Administration scripts**: Manage users, groups, and service accounts from the command line
+- **Pre-configured overlays**: memberof, referential integrity, password policy, dynamic lists, accesslog (HA), syncprov (HA)
+- **Three deployment modes**: standalone, HA active-passive (MirrorMode), HA active-active (N-way Multi-Master)
+- **Vagrant-based HA test cluster**: boot 3 VMs to validate replication, failover, shared-CA TLS
+- **Companion CLI**: [openldap-cli](https://github.com/MaximeWewer/openldap-cli) for users, groups, ppolicy, ACLs, diagnostics, backup
+- **POSIX optional**: posixAccount/shadowAccount via opt-in schema flag
 
-## Architecture
+### Architecture
+
+Directory Information Tree:
 
 ```mermaid
 graph TD
@@ -22,9 +73,7 @@ graph TD
     root --> pol["ou=policies<br/><i>Password policies</i>"]
 ```
 
-### ACL matrix (least privilege)
-
-**Main database** (`dc=example,dc=org`):
+ACL matrix (least privilege) on the main database (`dc=example,dc=org`):
 
 | Identity         | userPassword | service-accounts | users | groups | policies | base DN |
 | ---------------- | ------------ | ---------------- | ----- | ------ | -------- | ------- |
@@ -35,18 +84,18 @@ graph TD
 | phpldapadmin     | -            | -                | read  | read   | read     | -       |
 | anonymous        | auth only    | -                | -     | -      | read     | read    |
 
-**Infrastructure databases**:
+Infrastructure databases:
 
 | Identity    | cn=config | cn=accesslog | cn=Monitor |
 | ----------- | --------- | ------------ | ---------- |
 | adminconfig | manage    | read         | read       |
 | \*          | -         | -            | -          |
 
-Users and applications that need read access to `ou=users` or `ou=groups` must use a dedicated service account (see [Service accounts](#service-accounts)).
+Apps that need read access to `ou=users` or `ou=groups` must use a dedicated service account (see [Integration examples](#integration-examples)).
 
-## Deployment modes
+### Deployment modes
 
-Pick the layout that matches your availability needs. Each mode is self-contained in its own directory.
+Pick the layout that matches your availability needs. Each mode is **self-contained** in its own directory.
 
 | Mode                  | Directory                                  | Topology                                               | Writes             | Read scaling      | Use when                           |
 | --------------------- | ------------------------------------------ | ------------------------------------------------------ | ------------------ | ----------------- | ---------------------------------- |
@@ -54,31 +103,39 @@ Pick the layout that matches your availability needs. Each mode is self-containe
 | **HA Active-Passive** | [`ha-active-passive/`](ha-active-passive/) | 2 masters (MirrorMode) + N consumers + HAProxy `first` | active master only | consumer replicas | clean failover, no conflict risk   |
 | **HA Active-Active**  | [`ha-active-active/`](ha-active-active/)   | N masters (N-way Multi-Master) + HAProxy `roundrobin`  | any node           | any node          | max availability, write throughput |
 
-```bash
-# Standalone
-cd standalone && bash setup.sh
-
-# HA Active-Passive — boot 3-VM test cluster
-cd ha-active-passive/tests && vagrant up
-
-# HA Active-Active — boot 3-VM test cluster
-cd ha-active-active/tests && vagrant up
-```
-
-Each HA mode boots a 3-VM VirtualBox cluster (`192.168.58.10-12`) running Docker + OpenLDAP 2.6 + HAProxy. See per-mode READMEs for details:
+Per-mode READMEs go into the specific operational details:
 
 - [standalone/README.md](standalone/README.md)
 - [ha-active-passive/README.md](ha-active-passive/README.md)
 - [ha-active-active/README.md](ha-active-active/README.md)
 
-## Prerequisites
+---
+
+## Getting started
+
+### Prerequisites
 
 - Docker & Docker Compose
-- `ldap-utils` (`ldapsearch`, `ldapadd`, `ldapmodify`, `ldapdelete`)
-- [openldap-cli](https://github.com/MaximeWewer/openldap-cli) (recommended — for day-to-day admin)
-- VirtualBox + Vagrant (HA modes only — for the test cluster)
+- `ldap-utils` (only needed for raw `ldapsearch` debug; the CLI covers everything else)
+- [openldap-cli](https://github.com/MaximeWewer/openldap-cli) — companion admin tool
+- VirtualBox + Vagrant — HA modes only (for the local test cluster)
 
-## Default credentials
+### Quick start
+
+```bash
+# Standalone (single host)
+cd standalone && bash setup.sh
+
+# HA Active-Passive — boot the 3-VM Vagrant cluster
+cd ha-active-passive/tests && vagrant up
+
+# HA Active-Active — boot the 3-VM Vagrant cluster
+cd ha-active-active/tests && vagrant up
+```
+
+Each HA mode boots a 3-VM VirtualBox cluster on `192.168.58.10-12` running Docker + OpenLDAP 2.6 + HAProxy. Once provisioned, manage the directory with `openldap-cli` (see below).
+
+### Default credentials
 
 | Identity                     | DN                                                    | Password                             |
 | ---------------------------- | ----------------------------------------------------- | ------------------------------------ |
@@ -87,33 +144,21 @@ Each HA mode boots a 3-VM VirtualBox cluster (`192.168.58.10-12`) running Docker
 | Data rootDN                  | `cn=admin,dc=example,dc=org`                          | (SSHA-hashed in `slapd-config.ldif`) |
 | Replicator (HA only)         | `cn=replicator,ou=service-accounts,dc=example,dc=org` | `replicatorpassword`                 |
 
-> **Change all defaults before production use.** See [Password rotation](#password-rotation) below.
+> **Change all defaults before production use.** See [Password rotation](#password-rotation).
 
-## Password rotation
-
-```bash
-# Change admin user password (cn=admin,ou=users) — via openldap-cli (see below)
-openldap-cli user passwd admin
-
-# Change a rootDN password (cn=adminconfig,cn=config OR cn=admin,dc=example,dc=org)
-# rootDN passwords live in slapd-config.ldif as {SSHA} hashes - rotate via the CLI:
-HASH=$(docker run --rm --entrypoint slappasswd cleanstart/openldap:2.6.13 -s "NEW_PASSWORD")
-openldap-cli config set 'olcDatabase={0}config,cn=config' olcRootPW "$HASH"
-```
-
-> After rotating any password, update the corresponding entry in your `~/.openldap-cli.yaml` profile (or the matching `LDAP_*` env var).
+---
 
 ## Administration — openldap-cli
 
-Day-to-day directory administration (users, groups, service accounts, ppolicy, ACLs, diagnostics) is handled by a dedicated companion CLI:
+Day-to-day directory administration (users, groups, service accounts, ppolicy, ACLs, diagnostics, backup) is handled by the companion CLI:
 
 > **[github.com/MaximeWewer/openldap-cli](https://github.com/MaximeWewer/openldap-cli)** — a single static Go binary (no runtime, no dependencies).
 
-This repo (`OpenLDAP-docker-setup`) is now only responsible for **bootstrapping and operating the slapd container(s)** (compose, slapadd, TLS certs, HA replication, backup).
+This repo (`OpenLDAP-docker-setup`) is now only responsible for **bootstrapping and operating the slapd container(s)** (compose, slapadd, TLS certs, HA replication wiring, physical backups).
 
 ### Configure
 
-CLI reads `~/.openldap-cli.yaml` (override with `--config PATH`). Supports multiple **profiles** — handy when you switch between dev (standalone), HA staging, and prod nodes. Example:
+The CLI reads `~/.openldap-cli.yaml` (override with `--config PATH`). It supports multiple **profiles** — handy when switching between dev (standalone), HA staging, and prod nodes:
 
 ```yaml
 default: prod
@@ -129,7 +174,7 @@ profiles:
     url: ldaps://ldap.example.org:636
     base_dn: dc=example,dc=org
     bind_dn: cn=admin-foo,ou=users,dc=example,dc=org
-    bind_pw: ""              # prompt at runtime, or use LDAP_BIND_PW env var
+    bind_pw: ""              # prompt at runtime, or set LDAP_BIND_PW
     config_bind_dn: cn=adminconfig,cn=config
     config_bind_pw: ""
 ```
@@ -150,7 +195,7 @@ openldap-cli --profile prod user info admin-foo   # one-off override
 - **data bind** (`bind_dn`) — used for ACL-checked ops on `dc=…` (create/modify users, groups, etc.)
 - **config bind** (`config_bind_dn`) — required for cn=config / ACL / overlay / monitor operations
 
-### Command reference (summary)
+### Command reference
 
 Full reference and flags: `openldap-cli <cmd> --help`.
 
@@ -197,97 +242,118 @@ Full reference and flags: `openldap-cli <cmd> --help`.
 |                                       | `backup restore`                                                          | import LDIF (from stdin or file) into the target server                                                                                                                        |
 | **Schema**                            | `schema list-classes / list-attrs / show <name>`                          | schema browsing                                                                                                                                                                |
 | **General**                           | `whoami`                                                                  | bound identity                                                                                                                                                                 |
-|                                       | `search <filter>`                                                         | raw LDAP search escape hatch                                                                                                                                                   |
+|                                       | `search <filter>`                                                         | raw LDAP search (any `--base`, including `cn=config`)                                                                                                                          |
 |                                       | `import-ldif <file>`                                                      | bulk LDIF entry creation                                                                                                                                                       |
 |                                       | `version`                                                                 | binary version                                                                                                                                                                 |
 
 ### Global flags
 
-- `-o, --output text\|json\|yaml` — machine-friendly output
-- `--log-level trace\|debug\|info\|warn\|error` — verbosity (stderr)
-- `--log-format console\|json` — log style
+- `-o, --output text|json|yaml` — machine-friendly output
+- `--log-level trace|debug|info|warn|error` — verbosity (stderr)
+- `--log-format console|json` — log style
 
-### Typical day-1 sequence after standalone bootstrap
+### Day-1 sequence
+
+After bootstrapping a deployment, the typical first-touch flow:
 
 ```bash
-cd standalone && bash setup.sh                    # this repo
+cd standalone && bash setup.sh                    # bootstrap (or HA equivalent)
 openldap-cli --profile dev whoami                 # confirm bind
-openldap-cli user passwd admin                    # rotate the default admin
+openldap-cli user passwd admin                    # rotate the default admin pwd
 openldap-cli user add john.doe                    # onboard
 openldap-cli group add-member demo john.doe
 openldap-cli svc add gitea --subtree "ou=users,dc=example,dc=org" --access read
 openldap-cli ops db-stats                         # sanity check
 ```
 
-## POSIX support
+### LDAP commands cheat-sheet
 
-POSIX attributes (`posixAccount`, `shadowAccount`, `uidNumber`, `gidNumber`, `homeDirectory`, `loginShell`) are **disabled by default**.
-
-To enable POSIX support, uncomment these lines in your mode's slapd-config (`standalone/init-config/slapd-config.ldif` or `<ha-mode>/init-config/slapd-config.ldif.tmpl`) **before running the bootstrap** (`standalone/setup.sh` or `<ha-mode>/setup-node.sh`):
-
-```ldif
-# Schema
-#include: file:///etc/openldap/schema/nis.ldif
-
-# Index
-#olcDbIndex: uidNumber,gidNumber eq
-
-# ACL (insert as {1}, shift subsequent indexes)
-#olcAccess: {1}to attrs=shadowLastChange by self write by * read
-```
-
-Then use `--posix` when creating users:
+`search` accepts an arbitrary `--base` — any subtree (including `cn=config`) is reachable without dropping to raw `ldapsearch`.
 
 ```bash
-bash create-users.sh john.doe --posix
+# List all entries under the base DN
+openldap-cli search '(objectClass=*)' --base 'dc=example,dc=org'
+
+# Overlays / databases / ACLs (cn=config bind)
+openldap-cli config overlay list
+openldap-cli config db list
+openldap-cli config acl list 'olcDatabase={1}mdb,cn=config'
+
+# Loaded modules (search on cn=config)
+openldap-cli search '(objectClass=olcModuleList)' --base cn=config olcModuleLoad
+
+# Test a service account's view (one-shot bind override via env)
+LDAP_BIND_DN='cn=gitea,ou=service-accounts,dc=example,dc=org' LDAP_BIND_PW='PASSWORD' \
+  openldap-cli search '(uid=john.doe)' --base 'ou=users,dc=example,dc=org'
 ```
+
+---
+
+## Password rotation
+
+```bash
+# User / service-account password — via the CLI
+openldap-cli user passwd admin
+openldap-cli svc passwd gitea
+
+# RootDN passwords (cn=adminconfig,cn=config OR cn=admin,dc=example,dc=org)
+# These live in slapd-config.ldif as {SSHA} hashes — rotate via config set:
+HASH=$(docker run --rm --entrypoint slappasswd cleanstart/openldap:2.6.13 -s "NEW_PASSWORD")
+openldap-cli config set 'olcDatabase={0}config,cn=config' olcRootPW "$HASH"
+```
+
+> After rotating any password, update the corresponding entry in your `~/.openldap-cli.yaml` profile (or the matching `LDAP_*` env var).
+
+---
 
 ## TLS / LDAPS
 
-`certs.sh` and `certs/` live inside each deployment mode. Steps below are run from your mode directory (`standalone/`, `ha-active-active/`, or `ha-active-passive/`):
+`certs.sh` and `certs/` live inside each deployment mode (`standalone/`, `ha-active-active/`, `ha-active-passive/`).
 
-1. Generate certificates:
+### Enable TLS
 
-```bash
-cd <mode>            # standalone | ha-active-active | ha-active-passive
-bash certs.sh
-```
+1. **Generate certificates** (run from your mode directory):
 
-2. Uncomment the TLS lines in your mode's slapd-config (`init-config/slapd-config.ldif` for standalone, `init-config/slapd-config.ldif.tmpl` for HA), inside the `cn=config` entry:
+   ```bash
+   cd <mode>            # standalone | ha-active-active | ha-active-passive
+   bash certs.sh
+   ```
 
-```ldif
-olcTLSCACertificateFile: /etc/openldap/certs/openldapCA.crt
-olcTLSCertificateFile: /etc/openldap/certs/openldap.crt
-olcTLSCertificateKeyFile: /etc/openldap/certs/openldap.key
-olcTLSVerifyClient: never
-```
+2. **Uncomment the TLS lines** in your mode's slapd-config (`init-config/slapd-config.ldif` for standalone, `init-config/slapd-config.ldif.tmpl` for HA), inside the `cn=config` entry:
 
-3. Uncomment the `command` line in `docker-compose.yml` to enable `ldaps://`:
+   ```ldif
+   olcTLSCACertificateFile: /etc/openldap/certs/openldapCA.crt
+   olcTLSCertificateFile: /etc/openldap/certs/openldap.crt
+   olcTLSCertificateKeyFile: /etc/openldap/certs/openldap.key
+   olcTLSVerifyClient: never
+   ```
 
-```yaml
-command: ["slapd", "-d", "0", "-h", "ldap:// ldaps://", "-F", "/etc/openldap/slapd.d"]
-```
+3. **Uncomment the `command`** in `docker-compose.yml` to enable `ldaps://`:
 
-4. If using phpLDAPadmin over LDAPS (standalone only — HA phpLDAPadmin is optional and points at HAProxy), update the env vars in `docker-compose.yml`:
+   ```yaml
+   command: ["slapd", "-d", "0", "-h", "ldap:// ldaps://", "-F", "/etc/openldap/slapd.d"]
+   ```
 
-```yaml
-- LDAP_CONNECTION=ldaps
-- LDAP_PORT=636
-```
+4. **phpLDAPadmin over LDAPS** (standalone only — HA phpLDAPadmin points at HAProxy):
 
-5. Test (from inside your mode directory):
+   ```yaml
+   - LDAP_CONNECTION=ldaps
+   - LDAP_PORT=636
+   ```
 
-```bash
-# Via the CLI: temporarily target ldaps:// + trust the local CA
-LDAP_URL=ldaps://localhost:636 LDAPTLS_CACERT=./certs/openldapCA.crt \
-  openldap-cli search '(objectClass=*)' --base 'dc=example,dc=org' -s base
+5. **Test** (from inside your mode directory):
 
-# Or raw, when you specifically want to inspect the TLS handshake itself:
-LDAPTLS_CACERT=./certs/openldapCA.crt ldapsearch -x -H ldaps://localhost:636 \
-  -D "cn=admin,ou=users,dc=example,dc=org" -w "adminpassword" -b "dc=example,dc=org"
-```
+   ```bash
+   # Via the CLI: temporarily target ldaps:// + trust the local CA
+   LDAP_URL=ldaps://localhost:636 LDAPTLS_CACERT=./certs/openldapCA.crt \
+     openldap-cli search '(objectClass=*)' --base 'dc=example,dc=org' -s base
 
-> **Note**: If TLS is enabled after initial setup (without `--reset`), you can add the TLS config at runtime via `openldap-cli config set` on `cn=config` (no restart):
+   # Or raw, when you specifically want to inspect the TLS handshake itself:
+   LDAPTLS_CACERT=./certs/openldapCA.crt ldapsearch -x -H ldaps://localhost:636 \
+     -D "cn=admin,ou=users,dc=example,dc=org" -w "adminpassword" -b "dc=example,dc=org"
+   ```
+
+> **TLS at runtime**: if you enable TLS *after* the initial bootstrap (no `--reset`), you can inject the config live via the CLI:
 >
 > ```bash
 > openldap-cli config set 'cn=config' olcTLSCACertificateFile /etc/openldap/certs/openldapCA.crt
@@ -297,32 +363,31 @@ LDAPTLS_CACERT=./certs/openldapCA.crt ldapsearch -x -H ldaps://localhost:636 \
 
 ### Certificate renewal
 
-`certs.sh` is idempotent and safe to run repeatedly. It:
+`certs.sh` is idempotent and safe to run repeatedly:
 
 - Generates the CA only when missing (or with `--regen-ca`)
 - Renews the LDAP server cert only when missing, expired, or expiring within `--renew-threshold-days N` (default **30 days**)
 - With `--restart`, restarts the `openldap` container when a cert is actually renewed (slapd reads TLS material at startup — no hot reload)
-- HAProxy is **not** restarted: it does TCP passthrough in HA modes, so cert renewal is transparent to it
+- HAProxy is **not** restarted: it does TCP passthrough, so cert renewal is transparent to it
 - `--quiet` suppresses output when nothing happens (cron-friendly)
 
 ```bash
-# Manual usage
 cd <mode>
-bash certs.sh                          # renew if expiring within 30 days
-bash certs.sh --force                  # renew unconditionally
-bash certs.sh --restart                # renew and restart container if renewed
-bash certs.sh --regen-ca               # also regen the CA (rare)
-bash certs.sh --renew-threshold-days 7 # tighter window
-bash certs.sh --san "DNS:ldap1,IP:192.168.58.10"   # override SAN (HA: per-node)
+bash certs.sh                                       # renew if expiring within 30 days
+bash certs.sh --force                               # renew unconditionally
+bash certs.sh --restart                             # renew and restart container if renewed
+bash certs.sh --regen-ca                            # also regen the CA (rare)
+bash certs.sh --renew-threshold-days 7              # tighter window
+bash certs.sh --san "DNS:ldap1,IP:192.168.58.10"    # override SAN (HA: per-node)
 bash certs.sh --help
 ```
 
-#### HA: shared CA across nodes
+### HA: shared CA across nodes
 
-**Each peer must trust the same CA**, otherwise HAProxy failover causes TLS mismatch (client sees a different CA after switching nodes). Workflow:
+**Each peer must trust the same CA**, otherwise HAProxy failover causes a TLS mismatch (client sees a different CA after switching nodes). Workflow:
 
 1. **CA master (node 1)** — generates the CA + its own server cert (SAN = node 1 hostname/IP).
-2. **Each peer (node 2, 3, …)** — receives the CA's cert+key (via scp or the helper below), then `certs.sh --ca-from PATH --san "..."` produces a per-node server cert signed by the shared CA.
+2. **Each peer (node 2, 3, …)** — receives the CA's cert+key (scp or the Vagrant helper), then `certs.sh --ca-from PATH --san "..."` produces a per-node server cert signed by the shared CA.
 
 Manual (production-ish):
 
@@ -348,7 +413,7 @@ bash distribute-ca.sh        # bootstraps CA on ldap1, distributes to ldap2+ldap
                              # runs certs.sh per-node with the correct SAN, verifies chain
 ```
 
-#### Cron — automatic renewal
+### Cron — automatic renewal
 
 Replace `<mode>` with your deployment directory. On HA, install the cron on **every node** — the script reuses the existing CA and only renews the per-node server cert.
 
@@ -362,6 +427,8 @@ Replace `<mode>` with your deployment directory. On HA, install the cron on **ev
 - Run the cron as **root** (or with passwordless sudo) — the script needs to `chown 101:102 certs/` so the openldap container can read the cert.
 - Verify next expiry: `openssl x509 -in <mode>/certs/openldap.crt -enddate -noout`.
 - **CA expiry** (3 years by default): plan a manual `--regen-ca` rotation campaign + re-distribution before that date.
+
+---
 
 ## Database storage & sizing
 
@@ -379,7 +446,7 @@ The accesslog DB is the one that **blows up** in practice. See below.
 
 ### Tuning the accesslog overlay
 
-The `accesslog` overlay logs operations into `cn=accesslog`. Its growth rate is entirely controlled by three attributes on `olcOverlay={N}accesslog,olcDatabase={1}mdb,cn=config`:
+The `accesslog` overlay logs operations into `cn=accesslog`. Its growth rate is controlled by three attributes on `olcOverlay={N}accesslog,olcDatabase={1}mdb,cn=config`:
 
 | Attribute             | Recommended value   | Effect                                                                                                                |
 | --------------------- | ------------------- | --------------------------------------------------------------------------------------------------------------------- |
@@ -420,7 +487,7 @@ du -h <mode>/data/accesslog-data/data.mdb
 
 Set up an alert when page usage from `ops db-stats` exceeds ~70%.
 
-### Resizing `olcDbMaxSize` at runtime (no restart)
+### Resizing `olcDbMaxSize` at runtime
 
 `olcDbMaxSize` is **live-resizable** — slapd calls `mdb_env_set_mapsize()` and the new limit applies to the next transaction. No restart needed (and no `--reset`). Pick a value you can grow into for the next year.
 
@@ -465,6 +532,8 @@ If `accesslog` is the saturated DB, **every write on the main DB also fails** (t
 ### HA notes
 
 Each node has its **own** accesslog DB (it's not replicated — it's a per-server transcript fed into delta-syncrepl). Tuning + monitoring must be applied **on every node**. Volume is approximately equal on all peers in steady state because each node logs both its own client writes and the writes it pulls in via syncrepl.
+
+---
 
 ## Backup & restore
 
@@ -534,54 +603,11 @@ docker compose up -d
 0 23 * * * find /path/to/OpenLDAP-docker-setup/<mode>/backup -type f \( -name "*.ldif" -o -name "*.tar.gz" \) -mtime +30 -delete
 ```
 
-## LDAP commands reference
+---
 
-Most things go through `openldap-cli`. `search` accepts an arbitrary `--base` so any subtree (including `cn=config`) is reachable without dropping to raw `ldapsearch`.
+## Prometheus monitoring
 
-```bash
-# List all entries under the base DN
-openldap-cli search '(objectClass=*)' --base 'dc=example,dc=org'
-
-# View overlays / databases / ACLs (cn=config bind)
-openldap-cli config overlay list
-openldap-cli config db list
-openldap-cli config acl list 'olcDatabase={1}mdb,cn=config'
-
-# List loaded modules (search on cn=config)
-openldap-cli search '(objectClass=olcModuleList)' --base cn=config olcModuleLoad
-
-# Test a service account's view of users (one-shot bind override via env)
-LDAP_BIND_DN='cn=gitea,ou=service-accounts,dc=example,dc=org' LDAP_BIND_PW='PASSWORD' \
-  openldap-cli search '(uid=john.doe)' --base 'ou=users,dc=example,dc=org'
-```
-
-## Integration example (Zitadel, Gitea, etc.)
-
-Create a dedicated service account instead of using the admin account:
-
-```bash
-openldap-cli svc add myapp --access read --subtree "ou=users,dc=example,dc=org"
-```
-
-Then configure your application with:
-
-| Setting           | Value                                            |
-| ----------------- | ------------------------------------------------ |
-| Server            | `ldap://IP_or_FQDN:389`                          |
-| Base DN           | `dc=example,dc=org`                              |
-| Bind DN           | `cn=myapp,ou=service-accounts,dc=example,dc=org` |
-| Bind Password     | _(generated by the script)_                      |
-| User filter       | `(uid=%s)`                                       |
-| User object class | `inetOrgPerson`                                  |
-| ID attribute      | `uid`                                            |
-| Display name      | `displayName`                                    |
-| Email             | `mail`                                           |
-| First name        | `givenName`                                      |
-| Last name         | `sn`                                             |
-
-## Monitoring
-
-The `back_monitor` module is enabled in `slapd-config.ldif`. It exposes server statistics via `cn=Monitor` (connections, operations, threads, MDB pages, etc.). Query via the CLI:
+The `back_monitor` module is enabled in `slapd-config.ldif`. It exposes server statistics via `cn=Monitor` (connections, operations, threads, MDB pages, etc.), queryable directly via the CLI:
 
 ```bash
 openldap-cli ops monitor                # full cn=Monitor dump
@@ -590,6 +616,29 @@ openldap-cli ops replication            # local contextCSN per database
 ```
 
 To expose these metrics to Prometheus, use the [OpenLDAP Prometheus Exporter](https://github.com/MaximeWewer/OpenLDAP_prometheus_exporter). It connects to `cn=Monitor` and serves metrics on an HTTP endpoint for Prometheus scraping.
+
+---
+
+## POSIX support
+
+POSIX attributes (`posixAccount`, `shadowAccount`, `uidNumber`, `gidNumber`, `homeDirectory`, `loginShell`) are **disabled by default**.
+
+To enable POSIX support, uncomment these lines in your mode's slapd-config (`standalone/init-config/slapd-config.ldif` or `<ha-mode>/init-config/slapd-config.ldif.tmpl`) **before running the bootstrap** (`standalone/setup.sh` or `<ha-mode>/setup-node.sh`):
+
+```ldif
+# Schema
+#include: file:///etc/openldap/schema/nis.ldif
+
+# Index
+#olcDbIndex: uidNumber,gidNumber eq
+
+# ACL (insert as {1}, shift subsequent indexes)
+#olcAccess: {1}to attrs=shadowLastChange by self write by * read
+```
+
+Once the schema is enabled, create POSIX users via the CLI — see `openldap-cli user add --help` for the available flags.
+
+---
 
 ## Password policy
 
@@ -606,3 +655,31 @@ The default password policy (`cn=defaultppolicy,ou=policies`) enforces:
 | Lockout duration           | 30 minutes              |
 | Must change on first login | Yes                     |
 | Cleartext passwords        | Auto-hashed server-side |
+
+Manage policies via the CLI (`openldap-cli ppolicy set/assign/list/show/delete`).
+
+---
+
+## Integration examples
+
+Create a dedicated service account instead of using the admin account:
+
+```bash
+openldap-cli svc add myapp --access read --subtree "ou=users,dc=example,dc=org"
+```
+
+Then configure your application (Zitadel, Gitea, Nextcloud, etc.) with:
+
+| Setting           | Value                                            |
+| ----------------- | ------------------------------------------------ |
+| Server            | `ldap://IP_or_FQDN:389`                          |
+| Base DN           | `dc=example,dc=org`                              |
+| Bind DN           | `cn=myapp,ou=service-accounts,dc=example,dc=org` |
+| Bind Password     | _(returned by `svc add`)_                        |
+| User filter       | `(uid=%s)`                                       |
+| User object class | `inetOrgPerson`                                  |
+| ID attribute      | `uid`                                            |
+| Display name      | `displayName`                                    |
+| Email             | `mail`                                           |
+| First name        | `givenName`                                      |
+| Last name         | `sn`                                             |
