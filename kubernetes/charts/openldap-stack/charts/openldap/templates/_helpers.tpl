@@ -96,3 +96,15 @@ Headless service DNS name (for peer discovery in HA modes).
 {{- define "openldap.headlessServiceName" -}}
 {{- printf "%s-headless" (include "openldap.fullname" .) | trunc 63 | trimSuffix "-" -}}
 {{- end -}}
+
+{{/*
+Replicator Secret name — either an override (existingSecret) or the chart-
+managed `<fullname>-replicator` Secret with a persisted random password.
+*/}}
+{{- define "openldap.replicatorSecretName" -}}
+{{- if .Values.replication.replicator.existingSecret -}}
+{{- .Values.replication.replicator.existingSecret -}}
+{{- else -}}
+{{- printf "%s-replicator" (include "openldap.fullname" .) -}}
+{{- end -}}
+{{- end -}}

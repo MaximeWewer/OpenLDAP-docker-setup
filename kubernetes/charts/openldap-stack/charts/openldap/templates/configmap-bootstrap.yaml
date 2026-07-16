@@ -1,14 +1,24 @@
 {{- /*
 Bootstrap ConfigMap — holds:
-  * bootstrap.sh          — initContainer entrypoint (idempotent).
+  * bootstrap.sh          — initContainer entrypoint (idempotent, mode-aware).
+                            Standalone: seed cn=config + base data.
+                            Mirror / multi-master: same, plus per-pod
+                            olcServerID, olcMirrorMode: TRUE, syncrepl entries
+                            towards every in-cluster peer + externalPeers, and
+                            a replicator service account added to the tree.
   * slapd-config.ldif     — cn=config seed, Helm-templated for values-driven
-                            knobs (suffix, ppolicy DN, DB sizes, accesslog).
-                            Runtime placeholders __ADMIN_PW_HASH__ and
-                            __CONFIG_ADMIN_PW_HASH__ are substituted by
-                            bootstrap.sh (never persisted in cleartext).
-  * base-data.ldif        — dc=<suffix> + OUs. Users/groups are added by
-                            downstream Jobs (PR 4).
+                            knobs. Runtime placeholders substituted by
+                            bootstrap.sh:
+                              __ADMIN_PW_HASH__        (data admin)
+                              __CONFIG_ADMIN_PW_HASH__ (cn=config admin)
+                              __SERVER_ID_LINE__       (empty in standalone)
+                              __MIRRORMODE_LINE__      (empty in standalone)
+                              __SYNCREPL_BLOCK__       (empty in standalone)
+  * base-data.ldif        — dc=<suffix> + OUs + (HA) replicator service
+                            account. Loaded on ordinal 0 only when HA and
+                            replication.seedOnOrdinalZeroOnly=true (default).
 */ -}}
+{{- $ha := ne .Values.mode "standalone" -}}
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -19,12 +29,13 @@ metadata:
 data:
   bootstrap.sh: |
     #!/bin/sh
-    set -euo pipefail 2>/dev/null || set -eu
+    set -eu
 
     SLAPD_D=/etc/openldap/slapd.d
     MDB_DIR=/var/lib/openldap/openldap-data
     ACCESSLOG_DIR=/var/lib/openldap/accesslog-data
     OWNER="${OWNER_UID:-101}:${OWNER_GID:-102}"
+    OK_MARKER="${SLAPD_D}/.bootstrap-ok"
 
     # Alpine base image — install slapd tools (idempotent, no-op if cached).
     if ! command -v slapadd >/dev/null 2>&1; then
@@ -32,12 +43,26 @@ data:
       apk add --no-cache ${APK_PACKAGES} >/dev/null
     fi
 
-    # Idempotence: cn=config.ldif is the canonical marker that slapadd -n0 ran.
-    if [ -f "${SLAPD_D}/cn=config.ldif" ]; then
-      echo "[bootstrap] cn=config already present, skipping initialisation."
-      # Ownership drift can still be repaired safely.
+    # Derive ordinal from POD_NAME (StatefulSet pod names end in -N).
+    ORDINAL=0
+    if [ -n "${POD_NAME:-}" ]; then
+      ORDINAL="${POD_NAME##*-}"
+    fi
+    echo "[bootstrap] mode=${MODE:-standalone} pod=${POD_NAME:-?} ordinal=${ORDINAL}"
+
+    # Idempotence — a specific success marker is written LAST, so a partial
+    # bootstrap (e.g. slapadd failure mid-run) does not lock subsequent
+    # restarts into skipping. If cn=config exists but the marker is missing,
+    # wipe partial state and re-bootstrap from scratch.
+    if [ -f "${OK_MARKER}" ]; then
+      echo "[bootstrap] Marker present — already bootstrapped, skipping."
       chown -R "${OWNER}" "${SLAPD_D}" "${MDB_DIR}" "${ACCESSLOG_DIR}"
       exit 0
+    fi
+
+    if [ -d "${SLAPD_D}" ] && [ -n "$(ls -A ${SLAPD_D} 2>/dev/null)" ]; then
+      echo "[bootstrap] Partial state detected (no success marker) — wiping and restarting."
+      rm -rf "${SLAPD_D}"/* "${MDB_DIR}"/* "${ACCESSLOG_DIR}"/* 2>/dev/null || true
     fi
 
     if [ ! -f /secrets/admin-password ] || [ ! -f /secrets/config-admin-password ]; then
@@ -48,26 +73,127 @@ data:
     ADMIN_HASH=$(slappasswd -s "$(cat /secrets/admin-password)")
     CONFIG_HASH=$(slappasswd -s "$(cat /secrets/config-admin-password)")
 
+    # -------- HA-specific: server ID + syncrepl block + replicator hash. -----
+    SERVER_ID_LINE=""
+    MIRRORMODE_LINE=""
+    SYNCREPL_FILE=""
+    REPLICATOR_HASH=""
+
+    if [ "${MODE:-standalone}" != "standalone" ]; then
+      if [ ! -f /replicator/replicator-password ]; then
+        echo "[bootstrap] Replicator secret missing under /replicator" >&2
+        exit 1
+      fi
+      REPLICATOR_PW=$(cat /replicator/replicator-password)
+      REPLICATOR_HASH=$(slappasswd -s "$REPLICATOR_PW")
+
+      SERVER_ID=$((${SERVER_ID_BASE:-1} + ORDINAL))
+      SERVER_ID_LINE="olcServerID: ${SERVER_ID}"
+      MIRRORMODE_LINE="olcMirrorMode: TRUE"
+
+      # Build peer URI list: every in-cluster StatefulSet pod + external peers.
+      # Peer FQDN follows the StatefulSet + headless service convention:
+      #   <sts-name>-<i>.<headless>.<ns>.svc.cluster.local
+      PEERS=""
+      i=0
+      while [ "$i" -lt "${REPLICA_COUNT}" ]; do
+        PEERS="${PEERS} ldap://${SVC_NAME}-${i}.${HEADLESS_SVC}.${NAMESPACE}.svc.cluster.local:${REPLICA_LDAP_PORT}"
+        i=$((i + 1))
+      done
+      if [ -n "${EXTERNAL_PEERS:-}" ]; then
+        OLDIFS=$IFS
+        IFS=,
+        for p in $EXTERNAL_PEERS; do
+          [ -n "$p" ] && PEERS="${PEERS} ${p}"
+        done
+        IFS=$OLDIFS
+      fi
+
+      # Emit one olcSyncRepl entry per peer. rid must be unique per replica.
+      SYNCREPL_FILE=$(mktemp)
+      RID=1
+      for uri in $PEERS; do
+        RID_PADDED=$(printf '%03d' "$RID")
+        cat >> "$SYNCREPL_FILE" <<EOF
+    olcSyncRepl: rid=${RID_PADDED} provider=${uri}
+      bindmethod=simple binddn="${REPLICATOR_DN}"
+      credentials="${REPLICATOR_PW}"
+      searchbase="${SUFFIX}"
+      type=refreshAndPersist retry="${SYNCREPL_RETRY}"
+      timeout=1 schemachecking=on
+      logbase="cn=accesslog"
+      logfilter="(&(objectClass=auditWriteObject)(reqResult=0))"
+      syncdata=accesslog
+    EOF
+        RID=$((RID + 1))
+      done
+      echo "[bootstrap] built $(($RID - 1)) syncrepl providers, serverID=${SERVER_ID}"
+    fi
+
     mkdir -p "${SLAPD_D}" "${MDB_DIR}" "${ACCESSLOG_DIR}"
 
-    # Render cn=config with runtime password hashes (never on disk in plain).
+    # Render cn=config with password hashes and HA markers.
     RENDERED_CONFIG=$(mktemp)
     RENDERED_DATA=$(mktemp)
-    trap 'rm -f "${RENDERED_CONFIG}" "${RENDERED_DATA}"' EXIT
-    sed -e "s|__ADMIN_PW_HASH__|${ADMIN_HASH}|" \
-        -e "s|__CONFIG_ADMIN_PW_HASH__|${CONFIG_HASH}|" \
-        /bootstrap/slapd-config.ldif > "${RENDERED_CONFIG}"
+    trap 'rm -f "${RENDERED_CONFIG}" "${RENDERED_DATA}" "${SYNCREPL_FILE:-}"' EXIT
+
+    # Build a sed script file — safer than shell word-splitting when
+    # substitution values contain spaces (e.g. "olcServerID: 1").
+    SED_SCRIPT=$(mktemp)
+    {
+      printf 's|__ADMIN_PW_HASH__|%s|\n' "${ADMIN_HASH}"
+      printf 's|__CONFIG_ADMIN_PW_HASH__|%s|\n' "${CONFIG_HASH}"
+      printf 's|__SERVER_ID_LINE__|%s|\n' "${SERVER_ID_LINE}"
+      printf 's|__MIRRORMODE_LINE__|%s|\n' "${MIRRORMODE_LINE}"
+    } > "${SED_SCRIPT}"
+
+    # Multi-line SYNCREPL block is inserted via awk (sed multiline is not portable).
+    if [ -n "${SYNCREPL_FILE}" ] && [ -s "${SYNCREPL_FILE}" ]; then
+      awk -v f="${SYNCREPL_FILE}" '
+        /__SYNCREPL_BLOCK__/ {
+          while ((getline line < f) > 0) print line
+          close(f)
+          next
+        }
+        { print }
+      ' /bootstrap/slapd-config.ldif | sed -f "${SED_SCRIPT}" > "${RENDERED_CONFIG}"
+    else
+      { printf '/__SYNCREPL_BLOCK__/d\n'; cat "${SED_SCRIPT}"; } > "${SED_SCRIPT}.full"
+      sed -f "${SED_SCRIPT}.full" /bootstrap/slapd-config.ldif > "${RENDERED_CONFIG}"
+      rm -f "${SED_SCRIPT}.full"
+    fi
+    rm -f "${SED_SCRIPT}"
 
     echo "[bootstrap] Loading cn=config"
     slapadd -n 0 -F "${SLAPD_D}" -l "${RENDERED_CONFIG}"
 
-    cp /bootstrap/base-data.ldif "${RENDERED_DATA}"
+    # Base data: standalone always, HA only on ordinal 0 (default) so peers
+    # sync from ordinal 0 instead of concurrently seeding split-brain state.
+    SHOULD_SEED_DATA=1
+    if [ "${MODE:-standalone}" != "standalone" ] \
+       && [ "${SEED_ORDINAL_ZERO_ONLY:-true}" = "true" ] \
+       && [ "${ORDINAL}" != "0" ]; then
+      SHOULD_SEED_DATA=0
+    fi
 
-    echo "[bootstrap] Loading base directory data"
-    slapadd -n 1 -F "${SLAPD_D}" -l "${RENDERED_DATA}"
+    if [ "${SHOULD_SEED_DATA}" = "1" ]; then
+      # Substitute replicator hash into base data (empty in standalone → the
+      # replicator entry is stripped by the ${REPLICATOR_HASH:+…} guard in the
+      # template).
+      sed -e "s|__REPLICATOR_PW_HASH__|${REPLICATOR_HASH}|" \
+          /bootstrap/base-data.ldif > "${RENDERED_DATA}"
+      echo "[bootstrap] Loading base directory data"
+      slapadd -n 1 -F "${SLAPD_D}" -l "${RENDERED_DATA}"
+    else
+      echo "[bootstrap] ordinal=${ORDINAL} — skipping base data seed (will sync from ordinal 0)"
+    fi
 
     echo "[bootstrap] chown -R ${OWNER}"
     chown -R "${OWNER}" "${SLAPD_D}" "${MDB_DIR}" "${ACCESSLOG_DIR}"
+
+    # Success marker — written LAST so a partial bootstrap forces a redo.
+    date -u +%Y-%m-%dT%H:%M:%SZ > "${OK_MARKER}"
+    chown "${OWNER}" "${OK_MARKER}"
 
     echo "[bootstrap] Done."
 
@@ -89,6 +215,7 @@ data:
     {{- if .Values.tls.disallowPlainBind }}
     olcDisallows: bind_anon
     {{- end }}
+    __SERVER_ID_LINE__
 
     dn: cn=module{{ "{" }}0{{ "}" }},cn=config
     objectClass: olcModuleList
@@ -100,7 +227,7 @@ data:
     olcModuleLoad: ppolicy.so
     olcModuleLoad: dynlist.so
     olcModuleLoad: accesslog.so
-    {{- if eq .Values.mode "mirror" | or (eq .Values.mode "multi-master") }}
+    {{- if $ha }}
     olcModuleLoad: syncprov.so
     {{- end }}
 
@@ -139,11 +266,23 @@ data:
     olcDbIndex: mail eq,sub
     olcDbIndex: member eq
     olcDbIndex: memberOf eq
+    {{- if $ha }}
+    olcDbIndex: entryCSN,entryUUID eq
+    {{- end }}
     olcMonitoring: TRUE
-    olcAccess: {{ "{" }}0{{ "}" }}to attrs=userPassword by self write by dn.exact="{{ .Values.admin.bindDN }}" write by anonymous auth by * none
+    olcAccess: {{ "{" }}0{{ "}" }}to attrs=userPassword by self write by dn.exact="{{ .Values.admin.bindDN }}" write {{ if $ha }}by dn.exact="{{ .Values.replication.replicator.dn }},{{ .Values.directory.suffix }}" read {{ end }}by anonymous auth by * none
     olcAccess: {{ "{" }}1{{ "}" }}to dn.subtree="ou=policies,{{ .Values.directory.suffix }}" by * read
-    olcAccess: {{ "{" }}2{{ "}" }}to dn.subtree="{{ .Values.directory.suffix }}" by dn.exact="{{ .Values.admin.bindDN }}" write by users read by * none
-
+    olcAccess: {{ "{" }}2{{ "}" }}to dn.subtree="{{ .Values.directory.suffix }}" by dn.exact="{{ .Values.admin.bindDN }}" write {{ if $ha }}by dn.exact="{{ .Values.replication.replicator.dn }},{{ .Values.directory.suffix }}" read {{ end }}by users read by * none
+    __SYNCREPL_BLOCK__
+    __MIRRORMODE_LINE__
+    {{ if $ha }}
+    dn: olcOverlay=syncprov,olcDatabase={{ "{" }}1{{ "}" }}mdb,cn=config
+    objectClass: olcOverlayConfig
+    objectClass: olcSyncProvConfig
+    olcOverlay: syncprov
+    olcSpCheckpoint: {{ .Values.replication.syncprov.checkpoint }}
+    olcSpSessionLog: {{ .Values.replication.syncprov.sessionLog }}
+    {{ end }}
     dn: olcOverlay=memberof,olcDatabase={{ "{" }}1{{ "}" }}mdb,cn=config
     objectClass: olcOverlayConfig
     objectClass: olcMemberOf
@@ -186,15 +325,25 @@ data:
     olcDbIndex: reqDN eq
     olcDbIndex: reqType eq
     olcDbIndex: reqResult eq
-    olcAccess: {{ "{" }}0{{ "}" }}to * by dn.exact="{{ .Values.configAdmin.bindDN }}" read by * none
-
+    {{- if $ha }}
+    olcDbIndex: entryCSN,entryUUID,objectClass,reqEnd eq
+    {{- end }}
+    olcAccess: {{ "{" }}0{{ "}" }}to * by dn.exact="{{ .Values.configAdmin.bindDN }}" read {{ if $ha }}by dn.exact="{{ .Values.replication.replicator.dn }},{{ .Values.directory.suffix }}" read {{ end }}by * none
+    {{ if $ha }}
+    dn: olcOverlay=syncprov,olcDatabase={{ "{" }}2{{ "}" }}mdb,cn=config
+    objectClass: olcOverlayConfig
+    objectClass: olcSyncProvConfig
+    olcOverlay: syncprov
+    olcSpNoPresent: TRUE
+    olcSpReloadHint: TRUE
+    {{ end }}
     dn: olcOverlay=accesslog,olcDatabase={{ "{" }}1{{ "}" }}mdb,cn=config
     objectClass: olcOverlayConfig
     objectClass: olcAccessLogConfig
     olcOverlay: accesslog
     olcAccessLogDB: cn=accesslog
-    olcAccessLogOps: {{ .Values.accesslog.ops }}
-    olcAccessLogSuccess: {{ ternary "TRUE" "FALSE" .Values.accesslog.logSuccess }}
+    olcAccessLogOps: {{ if $ha }}writes{{ else }}{{ .Values.accesslog.ops }}{{ end }}
+    olcAccessLogSuccess: {{ if $ha }}TRUE{{ else }}{{ ternary "TRUE" "FALSE" .Values.accesslog.logSuccess }}{{ end }}
     olcAccessLogPurge: {{ .Values.accesslog.purge }}
 
     dn: olcDatabase={{ "{" }}3{{ "}" }}monitor,cn=config
@@ -219,3 +368,11 @@ data:
     objectClass: organizationalUnit
     ou: {{ . }}
     {{ end }}
+    {{- if $ha }}
+    dn: {{ .Values.replication.replicator.dn }},{{ .Values.directory.suffix }}
+    objectClass: inetOrgPerson
+    cn: {{ (split "," .Values.replication.replicator.dn)._0 | trimPrefix "cn=" }}
+    sn: replicator
+    userPassword: __REPLICATOR_PW_HASH__
+    description: Delta-syncrepl bind account for peer-to-peer replication.
+    {{- end }}

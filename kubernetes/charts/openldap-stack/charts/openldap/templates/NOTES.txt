@@ -6,7 +6,14 @@ Suffix:      {{ .Values.directory.suffix }}
 Admin DN:    {{ .Values.admin.bindDN }}
 Config DN:   {{ .Values.configAdmin.bindDN }}
 Service:     {{ include "openldap.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.ldapPort }}
-
+{{ if ne .Values.mode "standalone" -}}
+Replication:
+  Server ID base:  {{ .Values.replication.serverIdBase }} (pods get IDs {{ .Values.replication.serverIdBase }}..{{ add (int .Values.replication.serverIdBase) (sub (int .Values.replicaCount) 1) }})
+  Replicator DN:   {{ .Values.replication.replicator.dn }},{{ .Values.directory.suffix }}
+  {{- if .Values.replication.externalPeers }}
+  External peers:  {{ join ", " .Values.replication.externalPeers }}
+  {{- end }}
+{{ end }}
 {{ if .Values.admin.existingSecret -}}
 Admin credentials sourced from user-provided Secret: {{ .Values.admin.existingSecret }}
 {{- else -}}
@@ -16,6 +23,13 @@ Retrieve auto-generated admin passwords:
     -o jsonpath='{.data.admin-password}' | base64 -d ; echo
   kubectl -n {{ .Release.Namespace }} get secret {{ include "openldap.fullname" . }}-admin \
     -o jsonpath='{.data.config-admin-password}' | base64 -d ; echo
+{{- end }}
+{{- if and (ne .Values.mode "standalone") (not .Values.replication.replicator.existingSecret) }}
+
+Retrieve the replicator password:
+
+  kubectl -n {{ .Release.Namespace }} get secret {{ include "openldap.fullname" . }}-replicator \
+    -o jsonpath='{.data.replicator-password}' | base64 -d ; echo
 {{- end }}
 
 Test bind (port-forward):

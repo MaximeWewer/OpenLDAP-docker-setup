@@ -161,18 +161,44 @@ tls:
   disallowPlainBind: false
 
 # =============================================================================
-# Replication (PR 3)
+# Replication — delta-syncrepl (activated automatically when mode != standalone)
 # =============================================================================
 replication:
-  enabled: false
-  # In-cluster peers are derived from the StatefulSet headless service.
-  # externalPeers lists reachable LDAPS URLs of OpenLDAP replicas hosted on
-  # other clusters or bare-metal nodes, e.g.
+  # olcServerID assigned to a pod = serverIdBase + ordinal.
+  # In a single-cluster deployment, leave at 1 (pods get IDs 1, 2, 3, …).
+  # For cross-cluster HA, set a distinct base per cluster (e.g. 1 for DC1,
+  # 10 for DC2) so serverIDs stay globally unique.
+  serverIdBase: 1
+
+  # Fully-qualified peers reachable OUTSIDE the current cluster. Each entry
+  # is a URI to another OpenLDAP node's LDAP(S) endpoint, e.g.
   #   - ldaps://ldap.dc2.example.com:636
+  # These are appended to the in-cluster StatefulSet peers when building the
+  # syncrepl provider list. Ingress (PR 6) must expose LDAPS externally on
+  # each cluster before cross-cluster replication converges.
   externalPeers: []
 
-  # Delta-syncrepl retry policy: <interval> <retries> <sleep> <retries2>.
+  # Delta-syncrepl retry policy: <interval> <retries> <interval2> <retries2>.
   retry: "5 60 60 +"
+
+  # syncprov overlay tuning on the main mdb + accesslog mdb.
+  syncprov:
+    checkpoint: "100 10"
+    sessionLog: 500
+
+  # Replicator credentials — used by every peer to bind at each other peer
+  # for the delta-syncrepl pull. Password auto-generated on first install
+  # and preserved across upgrades (same lookup pattern as admin secret).
+  # Override with an existing Secret carrying `replicator-password`:
+  replicator:
+    dn: cn=replicator,ou=service-accounts
+    existingSecret: ""
+
+  # Only the pod with ordinal 0 loads the base directory data on first
+  # install; other pods start empty and sync from ordinal 0.
+  # Set to false if you want every pod to seed independently (dangerous —
+  # split-brain risk before syncrepl converges).
+  seedOnOrdinalZeroOnly: true
 
 # =============================================================================
 # Users / groups / ppolicy templates (PR 4)

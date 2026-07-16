@@ -10,12 +10,21 @@ from the mounted Secret (never persisted in cleartext) and hashes them with
 slappasswd before writing them into cn=config.
 */ -}}
 {{- $fullName := include "openldap.fullname" . -}}
-{{- if not (eq .Values.mode "standalone") -}}
-{{- fail (printf "openldap.mode=%q is not implemented yet — only 'standalone' is available in this chart version (see kubernetes/README.md roadmap PR 3)." .Values.mode) -}}
+{{- $mode := .Values.mode -}}
+{{- $replicas := int .Values.replicaCount -}}
+{{- if not (has $mode (list "standalone" "mirror" "multi-master")) -}}
+{{- fail (printf "openldap.mode=%q is invalid — expected standalone | mirror | multi-master" $mode) -}}
 {{- end -}}
-{{- if ne (int .Values.replicaCount) 1 -}}
-{{- fail (printf "openldap.replicaCount must be 1 for mode=standalone (got %d)" (int .Values.replicaCount)) -}}
+{{- if and (eq $mode "standalone") (ne $replicas 1) -}}
+{{- fail (printf "openldap.replicaCount must be 1 for mode=standalone (got %d)" $replicas) -}}
 {{- end -}}
+{{- if and (eq $mode "mirror") (ne $replicas 2) -}}
+{{- fail (printf "openldap.replicaCount must be 2 for mode=mirror (got %d)" $replicas) -}}
+{{- end -}}
+{{- if and (eq $mode "multi-master") (lt $replicas 2) -}}
+{{- fail (printf "openldap.replicaCount must be >= 2 for mode=multi-master (got %d)" $replicas) -}}
+{{- end -}}
+{{- $ha := ne $mode "standalone" -}}
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
@@ -84,6 +93,40 @@ spec:
               value: {{ .Values.securityContext.runAsUser | quote }}
             - name: OWNER_GID
               value: {{ .Values.securityContext.runAsGroup | quote }}
+            - name: MODE
+              value: {{ $mode | quote }}
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            {{- if $ha }}
+            - name: SERVER_ID_BASE
+              value: {{ .Values.replication.serverIdBase | quote }}
+            - name: REPLICA_COUNT
+              value: {{ $replicas | quote }}
+            - name: HEADLESS_SVC
+              value: {{ include "openldap.headlessServiceName" . }}
+            - name: NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: REPLICATOR_DN
+              value: "{{ .Values.replication.replicator.dn }},{{ .Values.directory.suffix }}"
+            - name: REPLICA_LDAP_PORT
+              value: {{ .Values.service.ldapPort | quote }}
+            - name: SEED_ORDINAL_ZERO_ONLY
+              value: {{ .Values.replication.seedOnOrdinalZeroOnly | quote }}
+            - name: SYNCREPL_RETRY
+              value: {{ .Values.replication.retry | quote }}
+            - name: EXTERNAL_PEERS
+              value: {{ join "," .Values.replication.externalPeers | quote }}
+            - name: SUFFIX
+              value: {{ .Values.directory.suffix | quote }}
+            - name: ADMIN_DN
+              value: {{ .Values.admin.bindDN | quote }}
+            - name: SVC_NAME
+              value: {{ $fullName | quote }}
+            {{- end }}
           # Runs as root: apk needs privileges + files are chowned to
           # <OWNER_UID>:<OWNER_GID> at the end so the main container reads them.
           securityContext:
@@ -101,6 +144,11 @@ spec:
             - name: admin-secret
               mountPath: /secrets
               readOnly: true
+            {{- if $ha }}
+            - name: replicator-secret
+              mountPath: /replicator
+              readOnly: true
+            {{- end }}
             - name: data
               mountPath: /etc/openldap/slapd.d
               subPath: slapd.d
@@ -175,6 +223,12 @@ spec:
           secret:
             secretName: {{ include "openldap.adminSecretName" . }}
             defaultMode: 0400
+        {{- if $ha }}
+        - name: replicator-secret
+          secret:
+            secretName: {{ include "openldap.replicatorSecretName" . }}
+            defaultMode: 0400
+        {{- end }}
         - name: run
           emptyDir:
             medium: Memory
