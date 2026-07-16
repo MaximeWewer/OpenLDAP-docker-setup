@@ -1,0 +1,19 @@
+{{- /*
+Chart-managed ConfigMap for inline custom schema files. Skipped when the
+user only points at an existingConfigMap (or provides nothing).
+*/ -}}
+{{- if .Values.customSchemas.files -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "openldap.fullname" . }}-custom-schemas
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "openldap.labels" . | nindent 4 }}
+    app.kubernetes.io/component: bootstrap
+data:
+{{- range $filename, $content := .Values.customSchemas.files }}
+  {{ $filename }}: |
+{{ tpl $content $ | indent 4 }}
+{{- end }}
+{{- end }}

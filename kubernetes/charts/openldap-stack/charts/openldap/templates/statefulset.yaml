@@ -153,6 +153,16 @@ spec:
               mountPath: /replicator
               readOnly: true
             {{- end }}
+            {{- if or .Values.customSchemas.files .Values.customSchemas.existingConfigMap }}
+            - name: custom-schemas
+              mountPath: /custom-schemas
+              readOnly: true
+            {{- end }}
+            {{- if or .Values.customLdifs.files .Values.customLdifs.existingConfigMap }}
+            - name: custom-ldifs
+              mountPath: /custom-ldifs
+              readOnly: true
+            {{- end }}
             - name: data
               mountPath: /etc/openldap/slapd.d
               subPath: slapd.d
@@ -296,6 +306,32 @@ spec:
           secret:
             secretName: {{ include "openldap.replicatorSecretName" . }}
             defaultMode: 0400
+        {{- end }}
+        {{- if or .Values.customSchemas.files .Values.customSchemas.existingConfigMap }}
+        - name: custom-schemas
+          projected:
+            sources:
+              {{- if .Values.customSchemas.files }}
+              - configMap:
+                  name: {{ include "openldap.fullname" . }}-custom-schemas
+              {{- end }}
+              {{- if .Values.customSchemas.existingConfigMap }}
+              - configMap:
+                  name: {{ .Values.customSchemas.existingConfigMap }}
+              {{- end }}
+        {{- end }}
+        {{- if or .Values.customLdifs.files .Values.customLdifs.existingConfigMap }}
+        - name: custom-ldifs
+          projected:
+            sources:
+              {{- if .Values.customLdifs.files }}
+              - configMap:
+                  name: {{ include "openldap.fullname" . }}-custom-ldifs
+              {{- end }}
+              {{- if .Values.customLdifs.existingConfigMap }}
+              - configMap:
+                  name: {{ .Values.customLdifs.existingConfigMap }}
+              {{- end }}
         {{- end }}
         - name: run
           emptyDir:

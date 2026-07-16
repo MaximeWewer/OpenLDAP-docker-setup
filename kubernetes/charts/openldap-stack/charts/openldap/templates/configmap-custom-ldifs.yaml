@@ -1,0 +1,19 @@
+{{- /*
+Chart-managed ConfigMap for inline custom data LDIFs. Files rendered
+through Helm's `tpl` so `{{ .Values.directory.suffix }}` etc. resolve.
+*/ -}}
+{{- if .Values.customLdifs.files -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "openldap.fullname" . }}-custom-ldifs
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "openldap.labels" . | nindent 4 }}
+    app.kubernetes.io/component: bootstrap
+data:
+{{- range $filename, $content := .Values.customLdifs.files }}
+  {{ $filename }}: |
+{{ tpl $content $ | indent 4 }}
+{{- end }}
+{{- end }}

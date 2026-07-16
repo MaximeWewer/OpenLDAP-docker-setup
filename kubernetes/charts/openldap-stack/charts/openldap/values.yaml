@@ -62,6 +62,57 @@ directory:
     - dyngroup
 
 # =============================================================================
+# Custom LDIF / schema injection
+# =============================================================================
+# Bring your own schemas (bank on top of core + directory.schemas) and/or
+# extra data LDIFs loaded during bootstrap. Every file goes through Helm's
+# `tpl` — so you can reference {{ .Values.directory.suffix }} etc. inside
+# your LDIF content.
+#
+# Precedence & timing:
+#   * Custom SCHEMAS are `slapadd -n 0` — loaded into cn=schema,cn=config,
+#     right after the chart's built-in schemas.
+#   * Custom DATA is `slapadd -n 1` — loaded AFTER the chart's base tree
+#     (dc + OUs + [ha] replicator). Only runs on the seed pod (ordinal 0
+#     in HA, or the standalone pod).
+#
+# Both accept EITHER an inline map (chart creates a ConfigMap) OR a
+# reference to an existing ConfigMap. Combine both freely.
+
+customSchemas:
+  # Inline schema files (map filename -> LDIF content). Chart wraps them
+  # in a ConfigMap named `<fullname>-custom-schemas`.
+  files: {}
+  # Example:
+  #   files:
+  #     ppolicy.ldif: |
+  #       dn: cn=ppolicy,cn=schema,cn=config
+  #       objectClass: olcSchemaConfig
+  #       cn: ppolicy
+  #       olcAttributeTypes: {0}( 1.3.6.1.4.1.42.2.27.8.1.1 ...
+  #       ...
+
+  # Existing ConfigMap that already carries schema LDIF files. Keys become
+  # filenames under /custom-schemas/. Loaded IN ADDITION to `files`.
+  existingConfigMap: ""
+
+customLdifs:
+  # Inline data LDIF files. Loaded after the base tree, in alphabetical
+  # order by filename — prefix with `00-`, `10-`, ... to force ordering.
+  files: {}
+  # Example:
+  #   files:
+  #     50-service-accounts.ldif: |
+  #       dn: cn=grafana,ou=service-accounts,{{ .Values.directory.suffix }}
+  #       objectClass: inetOrgPerson
+  #       cn: grafana
+  #       sn: bot
+  #       userPassword: {SSHA}...
+
+  # Existing ConfigMap that already carries LDIF files.
+  existingConfigMap: ""
+
+# =============================================================================
 # Admin credentials
 # =============================================================================
 admin:

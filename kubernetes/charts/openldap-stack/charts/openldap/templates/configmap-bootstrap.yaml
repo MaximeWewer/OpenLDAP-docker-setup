@@ -164,6 +164,31 @@ data:
     fi
     rm -f "${SED_SCRIPT}"
 
+    # Custom schemas — append `include:` lines to the cn=schema block right
+    # before slapadd. Files come from /custom-schemas (projected volume
+    # combining the chart-managed ConfigMap and any user existingConfigMap).
+    if [ -d /custom-schemas ]; then
+      CUSTOM_SCHEMAS=""
+      for f in /custom-schemas/*.ldif; do
+        [ -f "$f" ] || continue
+        CUSTOM_SCHEMAS="${CUSTOM_SCHEMAS}include: file://$f\n"
+      done
+      if [ -n "${CUSTOM_SCHEMAS}" ]; then
+        echo "[bootstrap] Injecting $(ls /custom-schemas/*.ldif 2>/dev/null | wc -l) custom schema file(s)"
+        # Insert AFTER the last built-in `include:` line inside cn=schema.
+        awk -v extra="$(printf '%b' "${CUSTOM_SCHEMAS}")" '
+          /^include: file:\/\/\/etc\/openldap\/schema/ { last=NR; buf[NR]=$0; next }
+          { buf[NR]=$0 }
+          END {
+            for (i=1;i<=NR;i++) {
+              print buf[i]
+              if (i==last) printf "%s", extra
+            }
+          }
+        ' "${RENDERED_CONFIG}" > "${RENDERED_CONFIG}.tmp" && mv "${RENDERED_CONFIG}.tmp" "${RENDERED_CONFIG}"
+      fi
+    fi
+
     echo "[bootstrap] Loading cn=config"
     slapadd -n 0 -F "${SLAPD_D}" -l "${RENDERED_CONFIG}"
 
@@ -184,6 +209,16 @@ data:
           /bootstrap/base-data.ldif > "${RENDERED_DATA}"
       echo "[bootstrap] Loading base directory data"
       slapadd -n 1 -F "${SLAPD_D}" -l "${RENDERED_DATA}"
+
+      # Custom data LDIFs — same seed pod, alphabetical order, one slapadd
+      # per file so a bad LDIF only wastes its own file rather than the
+      # whole batch. Files come from /custom-ldifs (projected volume).
+      if [ -d /custom-ldifs ]; then
+        for f in $(ls /custom-ldifs/*.ldif 2>/dev/null | sort); do
+          echo "[bootstrap] Loading custom LDIF $(basename "$f")"
+          slapadd -n 1 -F "${SLAPD_D}" -l "$f"
+        done
+      fi
     else
       echo "[bootstrap] ordinal=${ORDINAL} — skipping base data seed (will sync from ordinal 0)"
     fi
