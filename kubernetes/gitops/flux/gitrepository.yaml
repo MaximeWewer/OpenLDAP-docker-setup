@@ -1,0 +1,21 @@
+# -----------------------------------------------------------------------------
+# GitRepository — Flux source of truth for the chart.
+#
+# Usage:
+#   1. Replace REPO_URL with your fork's coordinates.
+#   2. Flux picks up commits every `.spec.interval` (5m below).
+#   3. kubectl apply -n flux-system -f gitrepository.yaml
+# -----------------------------------------------------------------------------
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: GitRepository
+metadata:
+  name: openldap-stack
+  namespace: flux-system
+spec:
+  interval: 5m
+  url: REPO_URL                    # e.g. https://github.com/MaximeWewer/OpenLDAP-docker-setup
+  ref:
+    branch: main
+  # Uncomment for a private repo:
+  # secretRef:
+  #   name: openldap-stack-git-auth   # deploy key / token Secret in flux-system

@@ -6,7 +6,8 @@ Password) with declarative GitOps-friendly administration via
 
 ## Status
 
-Incremental scaffold. Track progress against the roadmap below.
+Chart is feature-complete for the initial roadmap. Roadmap below is kept
+as a change-log — every row is `done`. Further work goes into new PRs.
 
 | PR | Scope | Status |
 |----|-------|--------|
@@ -17,23 +18,35 @@ Incremental scaffold. Track progress against the roadmap below.
 | 6 | Ingress (ingress-nginx + Gateway API) + cert-manager / cert Job | done |
 | 7 | Hardening pass (NetworkPolicy, PSA restricted, PDB, seccomp) | done |
 | 8 | `phpldapadmin` subchart | done |
-| 9 | `self-service-password` subchart | current |
-| 10 | GitOps guides (Argo CD + Flux) + cross-cluster bootstrap doc | pending |
+| 9 | `self-service-password` subchart | done |
+| 10 | GitOps guides (Argo CD + Flux) + cross-cluster bootstrap doc | done |
 
 ## Layout
 
 ```
 kubernetes/
-└── charts/
-    └── openldap-stack/            # umbrella
-        ├── Chart.yaml
-        ├── values.yaml            # global toggles + per-subchart overrides
-        └── charts/
-            └── openldap/          # OpenLDAP StatefulSet + bootstrap
-                ├── Chart.yaml
-                ├── values.yaml
-                └── templates/
+├── charts/
+│   └── openldap-stack/            # umbrella
+│       ├── Chart.yaml
+│       ├── values.yaml            # global toggles + per-subchart overrides
+│       └── charts/
+│           ├── openldap/          # OpenLDAP StatefulSet + bootstrap
+│           ├── phpldapadmin/      # web UI for browsing / editing
+│           └── self-service-password/  # end-user password change
+├── gitops/                        # Argo CD + Flux reference manifests
+│   ├── argocd/
+│   └── flux/
+└── cross-cluster/                 # multi-cluster HA bootstrap runbook
+    └── README.md
 ```
+
+Read [`gitops/README.md`](./gitops/README.md) before wiring Argo CD or
+Flux — Helm hooks, the chart's Secret preservation trick and Server-Side
+Apply have a couple of gotchas worth knowing.
+
+Read [`cross-cluster/README.md`](./cross-cluster/README.md) when you want
+to stitch two or more clusters into a multi-master mesh with
+`replication.externalPeers`.
 
 ## Self Service Password
 

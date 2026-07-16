@@ -1,0 +1,68 @@
+# -----------------------------------------------------------------------------
+# HelmRelease — install / upgrade the chart from the GitRepository above.
+#
+# The `install` + `upgrade` stanzas mirror the plain `helm install/upgrade`
+# defaults; keep them explicit so the Helm hooks the chart ships (tls-init
+# pre-install, ppolicy/users/groups sync post-install) get their remediation.
+# -----------------------------------------------------------------------------
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: openldap-stack
+  namespace: ldap
+spec:
+  interval: 15m
+  releaseName: openldap
+  targetNamespace: ldap
+
+  chart:
+    spec:
+      chart: kubernetes/charts/openldap-stack
+      sourceRef:
+        kind: GitRepository
+        name: openldap-stack
+        namespace: flux-system
+
+  install:
+    createNamespace: true
+    remediation:
+      retries: 3
+    timeout: 10m
+
+  upgrade:
+    remediation:
+      retries: 3
+      remediateLastFailure: true
+    cleanupOnFail: true
+    timeout: 10m
+
+  values:
+    openldap:
+      mode: multi-master
+      replicaCount: 3
+      directory:
+        suffix: dc=example,dc=org
+      tls:
+        enabled: true
+        backend: cert-manager
+        certManager:
+          issuerRef: { name: internal-ca, kind: ClusterIssuer }
+      monitoring:
+        enabled: true
+        serviceMonitor: { enabled: true }
+        prometheusRule: { enabled: true }
+      backup:
+        enabled: true
+      networkPolicy:
+        enabled: true
+
+  # Reference external Secrets instead of embedding sensitive values inline.
+  # Each referenced Secret must exist in `metadata.namespace` before this
+  # HelmRelease reconciles.
+  valuesFrom:
+    - kind: Secret
+      name: openldap-admin-passwords    # keys: admin.existingSecret target
+      optional: true
+    - kind: ConfigMap
+      name: openldap-envs-overlay       # per-env value overrides
+      optional: true

@@ -1,0 +1,41 @@
+# -----------------------------------------------------------------------------
+# app-of-apps — one Argo CD Application per environment, pointing at a folder
+# that holds one Application manifest per env (dev/stage/prod, or per DC in
+# a cross-cluster HA layout). Layout expected in Git:
+#
+#   gitops/
+#     argocd/
+#       app-of-apps.yaml               # this file
+#       envs/
+#         dev/
+#           application.yaml           # openldap-stack Application, dev overrides
+#         stage/
+#           application.yaml
+#         prod/
+#           application.yaml
+#         dc2-prod/
+#           application.yaml           # cross-cluster peer
+# -----------------------------------------------------------------------------
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: openldap-stack-envs
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: REPO_URL
+    targetRevision: main
+    path: gitops/argocd/envs
+    directory:
+      recurse: true
+      include: '{**/application.yaml,**/*.yaml}'
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - ServerSideApply=true

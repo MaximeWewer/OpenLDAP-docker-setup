@@ -1,0 +1,80 @@
+# -----------------------------------------------------------------------------
+# Single-environment Argo CD Application.
+#
+# Usage:
+#   1. Replace REPO_URL + TARGET_REVISION with your fork's coordinates.
+#   2. Move sensitive values (bind_pw, ...) into an ExternalSecret / SealedSecret
+#      referenced via the chart's `existingSecret` knobs.
+#   3. kubectl apply -n argocd -f application.yaml
+# -----------------------------------------------------------------------------
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: openldap-stack
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io    # cascade delete on app removal
+spec:
+  project: default
+
+  source:
+    repoURL: REPO_URL                            # e.g. https://github.com/MaximeWewer/OpenLDAP-docker-setup
+    targetRevision: main
+    path: kubernetes/charts/openldap-stack
+    helm:
+      # Override values here or point at a values file in the same repo.
+      valueFiles:
+        - values.yaml
+        - ../../envs/prod/values.yaml            # optional overlay
+      # Any critical secret should come from external-secrets or sealed-secrets,
+      # NOT from this Application spec — inline values end up in Argo's config.
+      parameters:
+        - name: openldap.mode
+          value: multi-master
+        - name: openldap.replicaCount
+          value: "3"
+        - name: openldap.tls.enabled
+          value: "true"
+        - name: openldap.tls.backend
+          value: cert-manager
+        - name: openldap.tls.certManager.issuerRef.name
+          value: internal-ca
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: ldap
+
+  syncPolicy:
+    automated:
+      # DO NOT enable `prune` on any Secret carrying a chart-generated
+      # password (admin, replicator, per-user, keyphrase, app-key). Those
+      # Secrets are annotated `helm.sh/resource-policy: keep`, but a wildcard
+      # prune bypasses that.
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      # Ignore diffs on Secrets managed by the chart's lookup+fallback pattern.
+      # Their data drifts by design between renders when the runner doesn't
+      # have cluster-scoped read (dry runs, PR previews).
+      - RespectIgnoreDifferences=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 10s
+        factor: 2
+        maxDuration: 3m
+
+  ignoreDifferences:
+    - group: ""
+      kind: Secret
+      name: openldap-stack-admin
+      jsonPointers: [/data]
+    - group: ""
+      kind: Secret
+      name: openldap-stack-replicator
+      jsonPointers: [/data]
+    - group: batch
+      kind: Job
+      jsonPointers: [/spec/template/metadata/labels]
