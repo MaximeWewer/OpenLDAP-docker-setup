@@ -1,0 +1,11 @@
+{{ template "chart.header" . }}
+
+{{ template "chart.description" . }}
+
+Normally installed via the umbrella [`openldap-stack`](../..) with
+`--set phpldapadmin.enabled=true`. The LDAP host defaults to the
+sibling openldap Service (`<release>-openldap.<ns>.svc.cluster.local`).
+
+{{ template "chart.requirementsSection" . }}
+
+{{ template "chart.valuesSection" . }}

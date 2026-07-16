@@ -1,23 +1,12 @@
 # phpldapadmin
 
-![Version: 0.1.0](https://img.shields.io/badge/Version-0.1.0-informational?style=flat-square) ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square) ![AppVersion: 2.3.11](https://img.shields.io/badge/AppVersion-2.3.11-informational?style=flat-square)
-
 phpLDAPadmin 2.x web UI for browsing and editing the OpenLDAP directory.
 Env-driven configuration; binds against the sibling openldap subchart's
 Service by default.
 
-**Homepage:** <https://github.com/MaximeWewer/OpenLDAP-docker-setup>
-
-## Maintainers
-
-| Name | Email | Url |
-| ---- | ------ | --- |
-| MaximeWewer |  | <https://github.com/MaximeWewer> |
-
-## Source Code
-
-* <https://github.com/MaximeWewer/OpenLDAP-docker-setup>
-* <https://github.com/leenooks/phpLDAPadmin>
+Normally installed via the umbrella [`openldap-stack`](../..) with
+`--set phpldapadmin.enabled=true`. The LDAP host defaults to the
+sibling openldap Service (`<release>-openldap.<ns>.svc.cluster.local`).
 
 ## Requirements
 

@@ -17,11 +17,20 @@ make docs        # writes README.md in each chart directory
 make docs-check  # CI-friendly staleness check
 ```
 
-The generated tables carry keys + types + defaults but leave the
-Description column blank for now — freeform comments in `values.yaml`
-document intent, and helm-docs picks up the ones prefixed with
-`# -- <description>` on the line above each key. Convert commentary
-progressively as knobs stabilise.
+The umbrella `values.yaml` is a full mirror of every subchart's values
+(all 3 nested under `openldap:`, `phpldapadmin:`, `self-service-password:`)
+so the umbrella README ships a single table covering the whole stack
+(~430 rows). Per-subchart READMEs cover the same knobs at their own
+altitude and are useful when the subchart is installed standalone.
+
+Description column is blank for freeform comments — helm-docs picks up
+the ones prefixed with `# -- <description>` on the line above each key.
+Convert commentary progressively as knobs stabilise.
+
+Each chart carries a `README.md.gotmpl` template with the chart's own
+custom sections (TL;DR, docs pointers) plus the standard helm-docs
+placeholders (`chart.header`, `chart.valuesSection`, …). Regenerating is
+non-destructive — the .gotmpl is the source of truth.
 
 ## Most-tuned values (curated)
 

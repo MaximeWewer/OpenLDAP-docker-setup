@@ -1,22 +1,12 @@
 # openldap
 
-![Version: 0.1.0](https://img.shields.io/badge/Version-0.1.0-informational?style=flat-square) ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square) ![AppVersion: 2.6.13](https://img.shields.io/badge/AppVersion-2.6.13-informational?style=flat-square)
-
 OpenLDAP 2.6 server (StatefulSet) with declarative cn=config bootstrap,
 suffix/OU/admin bootstrap, and hooks for downstream sync jobs backed by
 openldap-cli.
 
-**Homepage:** <https://github.com/MaximeWewer/OpenLDAP-docker-setup>
-
-## Maintainers
-
-| Name | Email | Url |
-| ---- | ------ | --- |
-| MaximeWewer |  | <https://github.com/MaximeWewer> |
-
-## Source Code
-
-* <https://github.com/MaximeWewer/OpenLDAP-docker-setup>
+This subchart is normally installed via the umbrella
+[`openldap-stack`](../..). Install it standalone only if you don't need
+phpLDAPadmin or Self Service Password sitting next to slapd.
 
 ## Requirements
 

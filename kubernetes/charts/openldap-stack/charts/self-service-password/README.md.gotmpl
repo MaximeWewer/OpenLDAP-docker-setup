@@ -1,0 +1,13 @@
+{{ template "chart.header" . }}
+
+{{ template "chart.description" . }}
+
+Normally installed via the umbrella [`openldap-stack`](../..) with
+`--set self-service-password.enabled=true`. Requires an LDAP bind
+account — declare it via `openldap.users` (uid: ssp) and point
+`self-service-password.ldap.bind.existingSecret` at the auto-generated
+Secret `<release>-openldap-user-ssp`.
+
+{{ template "chart.requirementsSection" . }}
+
+{{ template "chart.valuesSection" . }}

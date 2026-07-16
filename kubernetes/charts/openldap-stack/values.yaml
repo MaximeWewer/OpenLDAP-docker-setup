@@ -1,41 +1,1242 @@
 # =============================================================================
 # openldap-stack — umbrella values
 # =============================================================================
-# Each subchart is toggleable and its full values tree is accepted under its
-# name. Cross-cutting keys (directory suffix, TLS Secret, etc.) are duplicated
-# under each subchart where needed — Helm does not share values across
-# subcharts, so keep them in sync via `helm upgrade --set` or a single overlay.
+# Every subchart's `values.yaml` is mirrored under its top-level key
+# (openldap / phpldapadmin / self-service-password). The chart pipeline
+# passes those subtrees down to each subchart at render time, so any knob
+# here overrides the subchart default. Comments are preserved verbatim so
+# helm-docs picks them up when regenerating the README.
+#
+# Toggle a subchart on/off with the `enabled` key at the top of its block.
 # =============================================================================
 
+
+# =============================================================================
+# openldap — OpenLDAP 2.6 server (StatefulSet + bootstrap)
+# =============================================================================
 openldap:
   enabled: true
 
-  # ---------------------------------------------------------------------------
-  # See kubernetes/charts/openldap-stack/charts/openldap/values.yaml for the
-  # full documented value tree. Override any key here to change the default.
+
+  image:
+    # Runtime image — distroless, only runs slapd.
+    repository: cleanstart/openldap
+    tag: "2.6.13"
+    pullPolicy: IfNotPresent
+
+  # Override slapd's command / args entirely (escape hatch for exotic setups —
+  # e.g. running under strace, forcing a specific -d level, chrooting).
+  # When empty, the chart uses:
+  #   command: [slapd]
+  #   args:    ["-d", "0", "-h", "ldap:/// [ldaps:///]", "-F", "/etc/openldap/slapd.d"]
+  command: []
+  args: []
+
+  # Bootstrap init image — needs a shell + slappasswd + slapadd.
+  # Alpine's openldap package ships all required binaries and schemas; the
+  # initContainer installs them at runtime so no custom image build is needed.
+  initImage:
+    repository: alpine
+    tag: "3.19"
+    pullPolicy: IfNotPresent
+    # Additional apk packages to install for the bootstrap (kept minimal).
+    packages: "openldap openldap-clients openldap-back-mdb openldap-overlay-all"
+
+  # StatefulSet replicas.
+  #   standalone     -> replicaCount MUST be 1
+  #   mirror         -> replicaCount MUST be 2
+  #   multi-master   -> replicaCount >= 2
+  replicaCount: 1
+
+  # Deployment topology.
+  #   standalone   -> single pod, no replication
+  #   mirror       -> 2 pods, MirrorMode active/passive with delta-syncrepl
+  #   multi-master -> N-way multi-master with delta-syncrepl
+  mode: standalone
+
+  # =============================================================================
+  # Directory
+  # =============================================================================
+  directory:
+    suffix: dc=example,dc=org
+    organization: Example Org
+
+    # If set, added to the root entry as `description`.
+    description: ""
+
+    # Base OUs created during bootstrap.
+    # Names are relative to the suffix (dc=example,dc=org -> ou=users,dc=example,dc=org).
+    organizationalUnits:
+      - users
+      - groups
+      - service-accounts
+      - policies
+
+    # Additional schemas loaded on top of core.ldif (which is always required
+    # and loaded first). Names correspond to files under /etc/openldap/schema/
+    # in the OpenLDAP image — every standard schema ships there:
+    #   cosine, inetorgperson, dyngroup, nis, misc, java, corba, openldap,
+    #   collective, duaconf, dsee, pmi, msuser, namedobject
+    # Add `nis` to enable POSIX accounts (uidNumber, gidNumber, homeDirectory,
+    # loginShell, shadow*) — required for SSH/UNIX login backed by LDAP; the
+    # chart adds matching indexes automatically.
+    schemas:
+      - cosine
+      - inetorgperson
+      - dyngroup
+
+  # =============================================================================
+  # Custom LDIF / schema injection
+  # =============================================================================
+  # Bring your own schemas (bank on top of core + directory.schemas) and/or
+  # extra data LDIFs loaded during bootstrap. Every file goes through Helm's
+  # `tpl` — so you can reference {{ .Values.directory.suffix }} etc. inside
+  # your LDIF content.
+  #
+  # Precedence & timing:
+  #   * Custom SCHEMAS are `slapadd -n 0` — loaded into cn=schema,cn=config,
+  #     right after the chart's built-in schemas.
+  #   * Custom DATA is `slapadd -n 1` — loaded AFTER the chart's base tree
+  #     (dc + OUs + [ha] replicator). Only runs on the seed pod (ordinal 0
+  #     in HA, or the standalone pod).
+  #
+  # Both accept EITHER an inline map (chart creates a ConfigMap) OR a
+  # reference to an existing ConfigMap. Combine both freely.
+
+  customSchemas:
+    # Inline schema files (map filename -> LDIF content). Chart wraps them
+    # in a ConfigMap named `<fullname>-custom-schemas`.
+    files: {}
+    # Example:
+    #   files:
+    #     ppolicy.ldif: |
+    #       dn: cn=ppolicy,cn=schema,cn=config
+    #       objectClass: olcSchemaConfig
+    #       cn: ppolicy
+    #       olcAttributeTypes: {0}( 1.3.6.1.4.1.42.2.27.8.1.1 ...
+    #       ...
+
+    # Existing ConfigMap that already carries schema LDIF files. Keys become
+    # filenames under /custom-schemas/. Loaded IN ADDITION to `files`.
+    existingConfigMap: ""
+
+  # =============================================================================
+  # Bootstrap ConfigMap override (advanced escape hatch)
+  # =============================================================================
+  # Replace the chart's chart-generated bootstrap ConfigMap with your own.
+  # The referenced ConfigMap MUST carry exactly the same keys as the chart
+  # would emit — `bootstrap.sh`, `slapd-config.ldif`, `base-data.ldif` — so
+  # the initContainer command-line stays valid. Only use this when you need
+  # something the values-driven templates cannot express (e.g. shipping a
+  # custom bootstrap.sh with extra logic).
+  existingBootstrapConfigMap: ""
+
+  customLdifs:
+    # Inline data LDIF files. Loaded after the base tree, in alphabetical
+    # order by filename — prefix with `00-`, `10-`, ... to force ordering.
+    files: {}
+    # Example:
+    #   files:
+    #     50-service-accounts.ldif: |
+    #       dn: cn=grafana,ou=service-accounts,{{ .Values.directory.suffix }}
+    #       objectClass: inetOrgPerson
+    #       cn: grafana
+    #       sn: bot
+    #       userPassword: {SSHA}...
+
+    # Existing ConfigMap that already carries LDIF files.
+    existingConfigMap: ""
+
+  # =============================================================================
+  # ACLs (olcAccess on the main mdb database)
+  # =============================================================================
+  # Chart default ACL block (rendered when customAcls is empty):
+  #   0. userPassword: self write, admin write, [ha: replicator read], anon auth
+  #   1. ou=policies: readable by all
+  #   2. <suffix> subtree: admin write, [ha: replicator read], users read
+  #
+  # Every string here is rendered through Helm's `tpl` — reference
+  # {{ .Values.directory.suffix }}, {{ .Values.admin.bindDN }}, etc.
+  # Do NOT include the `{N}` index prefix — the chart numbers them in
+  # order (customAcls first, then extraAcls).
+
+  # REPLACE the chart's default ACL block entirely. Empty = use defaults.
+  customAcls: []
+  # Example — lock the tree down to admin + designated groups:
+  #   customAcls:
+  #     - 'to attrs=userPassword by self write by dn.exact="{{ .Values.admin.bindDN }}" write by anonymous auth by * none'
+  #     - 'to dn.subtree="ou=groups,{{ .Values.directory.suffix }}" by group.exact="cn=group-admins,ou=groups,{{ .Values.directory.suffix }}" write by users read by * none'
+  #     - 'to dn.subtree="{{ .Values.directory.suffix }}" by dn.exact="{{ .Values.admin.bindDN }}" write by users read by * none'
+
+  # APPEND to the chart's default ACL block. Ignored when customAcls is set.
+  extraAcls: []
+  # Example — grant a Grafana bot read-only access:
+  #   extraAcls:
+  #     - 'to dn.subtree="ou=users,{{ .Values.directory.suffix }}" by dn.exact="cn=grafana,ou=service-accounts,{{ .Values.directory.suffix }}" read by * break'
+
+  # =============================================================================
+  # Admin credentials
+  # =============================================================================
+  admin:
+    # Data admin — rootDN of the main MDB database.
+    bindDN: cn=admin,dc=example,dc=org
+
+    # If a Secret named `existingSecret` exists in the release namespace it MUST
+    # carry two keys: `admin-password` and `config-admin-password`. Otherwise the
+    # chart generates random 32-char passwords on first install and stores them
+    # in a Secret named `<fullname>-admin`, preserved across `helm upgrade` via a
+    # lookup + fallback pattern.
+    existingSecret: ""
+
+  configAdmin:
+    # cn=config rootDN (used for cn=config edits + admin over the config backend).
+    bindDN: cn=adminconfig,cn=config
+
+  # =============================================================================
+  # Persistence
+  # =============================================================================
+  # Single PVC per replica, three subPath mounts:
+  #   slapd.d/          -> /etc/openldap/slapd.d
+  #   openldap-data/    -> /var/lib/openldap/openldap-data
+  #   accesslog-data/   -> /var/lib/openldap/accesslog-data
+  persistence:
+    enabled: true
+    storageClass: ""
+    size: 10Gi
+    accessModes:
+      - ReadWriteOnce
+    # Additional annotations to set on the PVCs created by volumeClaimTemplates.
+    annotations: {}
+
+  # =============================================================================
+  # Database sizing (LMDB mapsize)
+  # =============================================================================
+  database:
+    # Suffix DB (dc=…).
+    main:
+      maxSizeBytes: 1073741824    # 1 GiB
+    # cn=accesslog DB — grows with bind + write traffic.
+    accesslog:
+      maxSizeBytes: 1073741824    # 1 GiB
+
+  # =============================================================================
+  # Access log overlay (bind audit + delta-syncrepl feeder)
+  # =============================================================================
+  accesslog:
+    # Operations to log: writes | bind | reads | all
+    ops: "writes bind"
+    logSuccess: false
+    # Purge cadence — DD+HH:MM DD+HH:MM (interval before delete + oldest-to-keep).
+    purge: "07+00:00 01+00:00"
+
+  # =============================================================================
+  # ppolicy overlay
+  # =============================================================================
+  ppolicy:
+    enabled: true
+    defaultPolicyRDN: cn=defaultppolicy    # relative to ou=policies,<suffix>
+    hashCleartext: true
+
+  # =============================================================================
+  # Networking
+  # =============================================================================
+  service:
+    type: ClusterIP
+    ldapPort: 389
+    ldapsPort: 636
+    annotations: {}
+
+    # Enable/disable each port on the client-facing Service without touching
+    # slapd's `-h` args (the pod still binds both). Useful to hide plaintext
+    # LDAP from clients while keeping StartTLS on 389 available internally.
+    enableLdapPort: true
+    enableLdapsPort: true             # only takes effect when tls.enabled=true
+
+    # Dual-stack / traffic-routing knobs — passed through verbatim when set.
+    # ipFamilyPolicy: SingleStack | PreferDualStack | RequireDualStack
+    ipFamilyPolicy: ""
+    ipFamilies: []                    # e.g. [IPv4, IPv6]
+    # externalTrafficPolicy: Cluster | Local (LoadBalancer / NodePort only)
+    externalTrafficPolicy: ""
+    # LoadBalancer specifics
+    loadBalancerIP: ""
+    loadBalancerSourceRanges: []
+    # NodePort assignments (only when type=NodePort)
+    ldapNodePort: ""
+    ldapsNodePort: ""
+    clusterIP: ""                     # e.g. None for headless, or a fixed IP
+
+  # Headless service backing the StatefulSet (peer discovery for HA).
+  headlessService:
+    annotations: {}
+
+  # =============================================================================
+  # TLS
+  # =============================================================================
+  tls:
+    enabled: false
+    # Backend that produces the TLS Secret consumed by slapd:
+    #   cert-manager -> Certificate CR points at tls.certManager.issuerRef
+    #   job          -> in-cluster CronJob generates + renews a self-signed CA
+    #                   and server cert (no external dependency)
+    #   provided     -> user pre-creates tls.provided.secretName with keys
+    #                   ca.crt, tls.crt, tls.key
+    backend: cert-manager
+
+    certManager:
+      issuerRef:
+        name: ""                       # e.g. "internal-ca"
+        kind: ClusterIssuer            # ClusterIssuer | Issuer
+      duration: 8760h                  # 1 year
+      renewBefore: 720h                # 30 days
+      # Extra SANs appended to the chart-computed default list
+      # (<fullname>, <fullname>.<ns>.svc.cluster.local, per-pod stable names).
+      dnsNames: []
+
+    job:
+      caValidityDays: 3650             # 10 years
+      certValidityDays: 365
+      renewThresholdDays: 30           # renew if cert expires within N days
+      schedule: "0 4 * * 1"            # weekly Monday 04:00
+      commonName: ""                   # default: <fullname>
+      # Extra SANs (appended to chart-computed defaults). Same layout as
+      # tls.certManager.dnsNames.
+      subjectAltNames: []
+      # After a successful renewal, roll the StatefulSet so pods pick up the
+      # new cert. Requires the sync ServiceAccount to have `patch` on the STS
+      # (granted by rbac-sync when tls.backend=job).
+      rollingRestartOnRenew: true
+      image:
+        repository: alpine
+        tag: "3.19"
+        pullPolicy: IfNotPresent
+      resources:
+        requests: { cpu: 20m, memory: 32Mi }
+        limits:   { cpu: 200m, memory: 128Mi }
+
+    provided:
+      # Secret with tls.crt, tls.key and ca.crt keys (pre-created).
+      secretName: ""
+
+    # Reject bind sessions below this SSF (0 disables the requirement).
+    minSSF: 0
+    # Require StartTLS or LDAPS (disallow anonymous cleartext bind).
+    disallowPlainBind: false
+
+  # =============================================================================
+  # Replication — delta-syncrepl (activated automatically when mode != standalone)
+  # =============================================================================
+  replication:
+    # olcServerID assigned to a pod = serverIdBase + ordinal.
+    # In a single-cluster deployment, leave at 1 (pods get IDs 1, 2, 3, …).
+    # For cross-cluster HA, set a distinct base per cluster (e.g. 1 for DC1,
+    # 10 for DC2) so serverIDs stay globally unique.
+    serverIdBase: 1
+
+    # Fully-qualified peers reachable OUTSIDE the current cluster. Each entry
+    # is a URI to another OpenLDAP node's LDAP(S) endpoint, e.g.
+    #   - ldaps://ldap.dc2.example.com:636
+    # These are appended to the in-cluster StatefulSet peers when building the
+    # syncrepl provider list. The ingress block below must expose LDAPS
+    # externally on each cluster before cross-cluster replication converges.
+    externalPeers: []
+
+    # Delta-syncrepl retry policy: <interval> <retries> <interval2> <retries2>.
+    retry: "5 60 60 +"
+
+    # StartTLS enforcement on each syncrepl connection to a peer.
+    #   ""         no StartTLS (plaintext or ldaps:// URL)
+    #   yes        attempt StartTLS, continue on failure
+    #   critical   REQUIRE StartTLS, abort session on failure
+    # Applies only when peer URLs are `ldap://` — `ldaps://` peers are already
+    # encrypted end-to-end.
+    startTLS: ""
+
+    # Certificate validation policy for TLS handshakes (applies to StartTLS
+    # AND ldaps:// peers). Passed as `tls_reqcert=<value>` on each olcSyncRepl.
+    #   ""      omit — inherit slapd's global olcTLSVerifyClient
+    #   never   don't validate (dev only)
+    #   allow   validate if presented, ignore failure
+    #   try     validate if presented, abort on failure
+    #   demand  require + validate, abort on failure  (default when TLS is on)
+    tlsReqcert: ""
+
+    # syncprov overlay tuning on the main mdb + accesslog mdb.
+    syncprov:
+      checkpoint: "100 10"
+      sessionLog: 500
+
+    # Replicator credentials — used by every peer to bind at each other peer
+    # for the delta-syncrepl pull. Password auto-generated on first install
+    # and preserved across upgrades (same lookup pattern as admin secret).
+    # Override with an existing Secret carrying `replicator-password`:
+    replicator:
+      dn: cn=replicator,ou=service-accounts
+      existingSecret: ""
+
+    # Only the pod with ordinal 0 loads the base directory data on first
+    # install; other pods start empty and sync from ordinal 0.
+    # Set to false if you want every pod to seed independently (dangerous —
+    # split-brain risk before syncrepl converges).
+    seedOnOrdinalZeroOnly: true
+
+  # =============================================================================
+  # Read-only replicas — separate StatefulSet of syncrepl consumers.
+  # Point read-heavy clients at the `<release>-openldap-readonly` Service
+  # to spread load without touching the write pool. Requires mode != standalone
+  # (RO consumers pull from writable peers).
+  # =============================================================================
+  readOnlyReplicas:
+    # 0 disables the RO pool entirely. When > 0, an additional StatefulSet
+    # + Services are emitted alongside the writable pool.
+    count: 0
+
+    # serverIdBase for RO pods. MUST be distinct from replication.serverIdBase
+    # to avoid olcServerID collisions in cn=config. Default reserves the decade
+    # 100+ for RO in a single cluster; bump when cross-cluster (writable in
+    # dc1: 1-9, RO in dc1: 100-109, writable in dc2: 10-19, RO in dc2: 110-119).
+    serverIdBase: 100
+
+    # slapd rejects client writes on RO pods (olcReadOnly: TRUE). Syncrepl
+    # still updates the DB internally — this only blocks external writes.
+    # Set to false if you want the RO pool to be promoteable to writable in
+    # a failover scenario (leaves the door open for a client-side write that
+    # would then be overwritten by syncrepl).
+    enforceReadOnly: true
+
+    # Falls back to openldap.resources if empty.
+    resources: {}
+
+    # Falls back to openldap.persistence.size / storageClass if empty.
+    persistence:
+      size: ""
+      storageClass: ""
+
+    # Standard placement knobs (independent from the writable pool).
+    nodeSelector: {}
+    tolerations: []
+    affinity: {}
+    topologySpreadConstraints: []
+    podLabels: {}
+    podAnnotations: {}
+    priorityClassName: ""
+
+    service:
+      type: ClusterIP
+      annotations: {}
+
+  # =============================================================================
+  # openldap-cli — used by all sync Jobs (ppolicy, users, groups) as Helm
+  # post-install / post-upgrade hooks. CLI + kubectl are downloaded on the fly
+  # from GitHub / dl.k8s.io so no custom image build is required.
+  # =============================================================================
+  cli:
+    image:
+      repository: alpine
+      tag: "3.19"
+      pullPolicy: IfNotPresent
+    version: "v2026.6.3"
+    downloadUrl: "https://github.com/MaximeWewer/openldap-cli/releases/download"
+    kubectlVersion: "v1.29.4"
+
+    # Wait for LDAP to be reachable before running sync scripts (Job startup).
+    waitForLdap:
+      timeoutSeconds: 180
+      intervalSeconds: 3
+
+    # Job resource requests / limits.
+    resources:
+      requests: { cpu: 50m, memory: 64Mi }
+      limits:   { cpu: 500m, memory: 256Mi }
+
+  # =============================================================================
+  # Password policies (ppolicy templates under ou=policies,<suffix>)
+  # =============================================================================
+  # Applied via `openldap-cli ppolicy set` (idempotent — creates or updates).
+  # Fields map 1:1 to the CLI flags — every entry key becomes `--<key>`.
+  # The chart-managed default policy referenced by ppolicy.defaultPolicyRDN
+  # (see the ppolicy section above) is NOT auto-created — declare it here
+  # too if you want the sync Job to manage it.
+  policies: []
   # Example:
-  #   openldap:
-  #     directory:
-  #       suffix: dc=corp,dc=example,dc=com
-  #     admin:
-  #       existingSecret: openldap-admin-passwords
-  #     persistence:
-  #       size: 50Gi
-  # ---------------------------------------------------------------------------
+  #   policies:
+  #     - cn: defaultppolicy
+  #       min-length: 12
+  #       max-age: 7776000            # 90 days
+  #       expire-warning: 604800      # 7 days
+  #       in-history: 5
+  #       max-failure: 5
+  #       lockout-duration: 1800      # 30 min
+  #       lockout: true
+  #       check-quality: 2
+  #       must-change: false
 
+  # =============================================================================
+  # Users
+  # =============================================================================
+  # Applied via `openldap-cli user add` / `user set` (create-or-update).
+  # Passwords are auto-generated per user unless `existingSecret` is set.
+  # Generated passwords are stored in a Secret named
+  #   `<release>-openldap-user-<uid>`
+  # with key `password`. The Secret carries the label
+  #   openldap.stack/user=<uid>
+  # so external systems can watch/list them.
+  users: []
+  # Example:
+  #   users:
+  #     - uid: alice
+  #       givenName: Alice
+  #       sn: Wonderland
+  #       mail: alice@example.org              # optional (defaults to <uid>@<mail_domain>)
+  #       displayName: "Alice Wonderland"      # optional
+  #       policy: defaultppolicy               # optional (ppolicy assign)
+  #       existingSecret: ""                   # optional — Secret carrying `password` key
+  #       # extra: any k=v pair below `attrs` is passed to `user set` verbatim
+  #       attrs:
+  #         telephoneNumber: "+33-1-00-00-00-00"
+  #         title: "Engineer"
+  #     - uid: bob
+  #       givenName: Bob
+  #       sn: Builder
+
+  # What happens when a user is removed from the values.yaml on upgrade.
+  #   delete -> `openldap-cli user delete`
+  #   lock   -> `openldap-cli user set <uid> pwdAccountLockedTime 000001010000Z`
+  onUserRemove: delete
+
+  # =============================================================================
+  # Groups (groupOfNames — each group MUST have ≥ 1 member per LDAP schema)
+  # =============================================================================
+  # Applied via `openldap-cli group create` (initial) then reconciled with
+  # `group add-member` / `group remove-member`. `members` lists user UIDs;
+  # they are translated to full DNs at sync time using values.userOU.
+  groups: []
+  # Example:
+  #   groups:
+  #     - cn: devs
+  #       description: Development team
+  #       members: [alice, bob]
+  #     - cn: admins
+  #       description: Administrators
+  #       members: [alice]
+
+  # Removed groups: same knob as users.
+  onGroupRemove: delete
+
+  # =============================================================================
+  # Secrets backend for auto-generated per-user passwords
+  # =============================================================================
+  secrets:
+    # kubernetes | external-secrets
+    backend: kubernetes
+
+    externalSecrets:
+      secretStore:
+        name: ""
+        kind: ClusterSecretStore
+      pathPrefix: ""
+
+  # =============================================================================
+  # Backup — CronJob driving `openldap-cli backup data|config` on a schedule.
+  # =============================================================================
+  backup:
+    enabled: false
+    schedule: "0 22 * * *"
+    # Retention in days for local dumps (find -mtime +N -delete). Ignored when
+    # persistence is off — remote-only backups must set retention at the object
+    # store level.
+    retentionDays: 30
+
+    # `--operational` includes operational attrs (createTimestamp, entryCSN,
+    # pwdChangedTime, memberOf, …). Useful for disaster recovery on the SAME
+    # topology; drop it when the dump is for import into a different tree.
+    includeOperational: true
+
+    # File name pattern — supports `{{ "{{" }} .date {{ "}}" }}` (UTC YYYYMMDD) and `{{ "{{" }} .kind {{ "}}" }}`
+    # (`data` or `config`). Files are always gzipped (`.gz` triggers automatic
+    # gzip in openldap-cli).
+    fileNamePattern: "{{ .kind }}_{{ .date }}.ldif.gz"
+
+    persistence:
+      enabled: true
+      storageClass: ""
+      size: 20Gi
+      accessModes: [ReadWriteOnce]
+      annotations: {}
+      # Set to reuse an existing PVC instead of creating one.
+      existingClaim: ""
+
+    # Optional remote destination — copied AFTER the local dump succeeds.
+    # Not implemented yet — the fields are reserved so enabling this in a
+    # future release doesn't change the values schema.
+    s3:
+      enabled: false
+      bucket: ""
+      endpoint: ""
+      region: ""
+      existingSecret: ""
+
+    # Resources for the backup Job's pod.
+    resources:
+      requests: { cpu: 50m, memory: 128Mi }
+      limits:   { cpu: 500m, memory: 512Mi }
+
+  # =============================================================================
+  # Accesslog purge — periodic CronJob calling `openldap-cli ops accesslog-purge`
+  # to shrink the accesslog MDB (slapd's built-in olcAccessLogPurge deletes
+  # entries but does not reclaim MDB space; this Job does the reclaim).
+  # =============================================================================
+  accesslogPurgeJob:
+    enabled: false
+    schedule: "0 3 * * 0"          # Sundays at 03:00
+    keepDays: 7
+    # DD+HH:MM — how often to sweep + the age threshold slapd applies.
+    sweep: "00+06:00"
+    dryRun: false
+    resources:
+      requests: { cpu: 50m, memory: 64Mi }
+      limits:   { cpu: 500m, memory: 256Mi }
+
+  # =============================================================================
+  # Monitoring — Prometheus exporter sidecar + optional ServiceMonitor / rules.
+  # =============================================================================
+  monitoring:
+    enabled: false
+
+    exporter:
+      image:
+        repository: ghcr.io/maximewewer/openldap_prometheus_exporter
+        tag: latest
+        pullPolicy: IfNotPresent
+      port: 9330
+
+      # Extra env vars passed to the exporter container — see
+      # https://github.com/MaximeWewer/OpenLDAP_prometheus_exporter for the full
+      # reference (LDAP_TIMEOUT, RATE_LIMIT_*, CIRCUIT_BREAKER_*, …).
+      extraEnv: []
+      # Example:
+      #   - name: LDAP_TIMEOUT
+      #     value: "15"
+      #   - name: OPENLDAP_METRICS_EXCLUDE
+      #     value: "sasl,log"
+
+      resources:
+        requests: { cpu: 20m, memory: 32Mi }
+        limits:   { cpu: 200m, memory: 128Mi }
+
+    # ServiceMonitor CR for prometheus-operator (RH cluster monitoring, kube-
+    # prometheus-stack, VictoriaMetrics operator, …).
+    serviceMonitor:
+      enabled: false
+      interval: 30s
+      scrapeTimeout: 10s
+      labels: {}
+      relabelings: []
+      metricRelabelings: []
+
+    # PrometheusRule with sane defaults. Set enabled=true to ship them.
+    prometheusRule:
+      enabled: false
+      labels: {}
+      rules:
+        # Set to null / [] to skip built-in rules; otherwise the chart emits
+        # `openldap.rules` with baseline alerts.
+        defaultsEnabled: true
+
+  # =============================================================================
+  # Ingress
+  # =============================================================================
+  ingress:
+    enabled: false
+    # ingress-nginx | gateway-api
+    mode: ingress-nginx
+
+    # Externally-reachable hostname of the LDAPS endpoint. Required in every
+    # mode — used both as the SNI host and as the Certificate SAN when TLS is
+    # produced by cert-manager or the tls Job.
+    host: ""                      # e.g. ldap.example.com
+
+    # LDAPS Ingress — assumes controller has `--enable-ssl-passthrough`
+    # (SNI-based TCP proxying, since LDAPS is not HTTP). Plaintext LDAP (389)
+    # is not exposed here; use a LoadBalancer/NodePort Service if you need it
+    # externally.
+    ingressNginx:
+      className: nginx
+      annotations: {}
+      # ssl-passthrough IS the point — do not disable unless you know what you're
+      # doing (the controller then terminates TLS itself and can't proxy LDAPS).
+      sslPassthrough: true
+
+    gatewayAPI:
+      # apiVersion: gateway.networking.k8s.io/v1 (TLSRoute + Gateway)
+      gatewayClassName: ""        # e.g. cilium | envoy | istio
+      # Existing Gateway to attach to; if empty, the chart provisions a
+      # dedicated Gateway with a TLS-passthrough listener on port 636.
+      gatewayName: ""
+      gatewayNamespace: ""        # defaults to release namespace
+      listenerName: "ldaps"
+      port: 636
+
+  # =============================================================================
+  # Hardening — strict defaults (non-root, drop-all caps, read-only rootfs
+  # on the server + exporter containers).
+  # =============================================================================
+  serviceAccount:
+    create: true
+    name: ""
+    annotations: {}
+    automountServiceAccountToken: false
+
+  podSecurityContext:
+    fsGroup: 102
+    runAsNonRoot: true
+    seccompProfile:
+      type: RuntimeDefault
+
+  securityContext:
+    runAsUser: 101
+    runAsGroup: 102
+    allowPrivilegeEscalation: false
+    # slapd only writes to /var/lib/openldap/*, /etc/openldap/slapd.d (PVC subPaths)
+    # and /run/openldap (emptyDir). Everything else can be read-only.
+    readOnlyRootFilesystem: true
+    capabilities:
+      drop: [ALL]
+
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+
+  podAnnotations: {}
+  podLabels: {}
+  nodeSelector: {}
+  tolerations: []
+  # Full pod affinity — takes precedence over the presets below when set.
+  affinity: {}
+  topologySpreadConstraints: []
+  priorityClassName: ""
+
+  # Convenience presets for common HA anti-affinity patterns. Only applied
+  # when `affinity` above is empty. `soft` = preferredDuringScheduling
+  # (best-effort), `hard` = requiredDuringScheduling (blocks scheduling if
+  # the topology has fewer nodes than replicas).
+  #
+  # podAntiAffinityPreset: "" | soft | hard
+  podAntiAffinityPreset: ""
+  # nodeAffinityPreset — pin pods to nodes matching a label key/values.
+  #   type: "" | soft | hard
+  #   key:  node label to select on
+  #   values: [] list of accepted values
+  nodeAffinityPreset:
+    type: ""
+    key: ""
+    values: []
+
+  # =============================================================================
+  # Extension points — inject arbitrary volumes / mounts / containers / manifests
+  # without forking the chart. Applied to the openldap StatefulSet (server pods).
+  # =============================================================================
+
+  # Extra env vars appended to the slapd container.
+  extraEnv: []
+  # Example:
+  #   - name: EXTRA_ENV
+  #     value: something
+  #   - name: FROM_SECRET
+  #     valueFrom:
+  #       secretKeyRef: { name: my-sec, key: k }
+
+  # Extra volumes on the pod (siblings of `data`, `bootstrap`, `admin-secret`, ...).
+  extraVolumes: []
+  # Example:
+  #   - name: extra-ldifs
+  #     configMap:
+  #       name: my-custom-ldifs
+
+  # Extra volume mounts on the slapd container.
+  extraVolumeMounts: []
+  # Example:
+  #   - name: extra-ldifs
+  #     mountPath: /custom-ldifs
+  #     readOnly: true
+
+  # Extra initContainers (run BEFORE the chart's `bootstrap` init).
+  extraInitContainers: []
+  # Example:
+  #   - name: wait-for-db
+  #     image: busybox:1.36
+  #     command: [sh, -c, "until nslookup my-dep; do sleep 2; done"]
+
+  # Extra sidecar containers (run alongside slapd + exporter).
+  sidecars: []
+  # Example:
+  #   - name: log-shipper
+  #     image: fluent/fluent-bit:3.0
+  #     volumeMounts:
+  #       - name: data
+  #         mountPath: /var/log/slapd
+  #         subPath: log
+  #         readOnly: true
+
+  # Extra manifests emitted verbatim by the chart (each entry is a full
+  # Kubernetes object). Useful for shipping ancillary resources (custom
+  # ConfigMaps, extra NetworkPolicies, ExternalSecrets, PriorityClasses, …)
+  # alongside the release.
+  extraDeploy: []
+  # Example:
+  #   - apiVersion: v1
+  #     kind: ConfigMap
+  #     metadata:
+  #       name: my-extra-cm
+  #     data:
+  #       key: value
+
+  # =============================================================================
+  # PodDisruptionBudget — HA-safe voluntary eviction guard.
+  # =============================================================================
+  podDisruptionBudget:
+    # Auto: create iff mode != standalone. Set to true/false to force.
+    enabled: "auto"
+    # If both are empty, defaults to `minAvailable: <replicas - 1>`. Set only
+    # one — Kubernetes rejects PDBs that set both.
+    minAvailable: ""
+    maxUnavailable: ""
+    unhealthyPodEvictionPolicy: ""     # "" | AlwaysAllow | IfHealthyBudget (K8s ≥ 1.27)
+
+  # =============================================================================
+  # NetworkPolicy — default-deny + explicit allows scoped to what actually
+  # needs to talk to slapd.
+  # =============================================================================
+  networkPolicy:
+    enabled: false
+
+    # Additional in-cluster clients. Each entry is a NetworkPolicyPeer
+    # (podSelector / namespaceSelector / ipBlock). Empty = only the
+    # chart-emitted allows (peer-to-peer, sync jobs, exporter scrape) are open.
+    allowedFrom: []
+    # Example:
+    #   - namespaceSelector:
+    #       matchLabels: { name: apps }
+    #     podSelector:
+    #       matchLabels: { role: ldap-client }
+    #   - ipBlock:
+    #       cidr: 10.0.0.0/16
+
+    # Namespace where Prometheus lives (for the metrics scrape allow rule).
+    # Empty = same namespace as the release.
+    prometheusNamespace: ""
+
+    # Egress to external LDAPS peers (replication.externalPeers). When empty
+    # and replication is enabled, the chart opens TCP 636 to 0.0.0.0/0
+    # (cross-cluster peers are usually unpredictable). Tighten with CIDRs
+    # here when you know your peers' addresses.
+    externalPeerCIDRs: []
+
+    # Fully custom rules appended after the chart-emitted ones.
+    extraIngress: []
+    extraEgress: []
+
+  # =============================================================================
+  # Probes
+  # =============================================================================
+  livenessProbe:
+    tcpSocket:
+      port: ldap
+    initialDelaySeconds: 30
+    periodSeconds: 30
+    timeoutSeconds: 5
+    failureThreshold: 6
+
+  readinessProbe:
+    tcpSocket:
+      port: ldap
+    initialDelaySeconds: 5
+    periodSeconds: 10
+    timeoutSeconds: 3
+    failureThreshold: 3
+
+  startupProbe:
+    tcpSocket:
+      port: ldap
+    initialDelaySeconds: 5
+    periodSeconds: 5
+    timeoutSeconds: 3
+    failureThreshold: 60
+
+# =============================================================================
+# phpldapadmin — web UI for browsing / editing
+# =============================================================================
 phpldapadmin:
-  # See kubernetes/charts/openldap-stack/charts/phpldapadmin/values.yaml for
-  # the full value tree. Sensible defaults auto-wire the LDAP host to
-  # `<release>-openldap.<ns>.svc.cluster.local`, so enabling this side-by-side
-  # with the openldap subchart is a one-liner:
-  #   phpldapadmin:
-  #     enabled: true
   enabled: false
 
+
+  image:
+    repository: phpldapadmin/phpldapadmin
+    tag: "2.3.11"
+    pullPolicy: IfNotPresent
+
+  replicaCount: 1
+
+  # =============================================================================
+  # LDAP connection
+  # =============================================================================
+  # The Service name here defaults to `<release>-openldap`, matching what the
+  # openldap subchart emits when installed as part of the same release. Override
+  # `ldap.host` (and optionally `ldap.port` + `ldap.connection`) to point at an
+  # external OpenLDAP.
+  ldap:
+    # Auto = <release>-openldap.<ns>.svc.cluster.local. Explicit hostname wins.
+    host: ""
+    port: 389
+    # ldap | ldaps | starttls
+    connection: ldap
+    baseDN: dc=example,dc=org
+    # Attribute users log in with (uid | mail | cn).
+    loginAttr: uid
+
+  # =============================================================================
+  # Bootstrap bind (optional)
+  # =============================================================================
+  # phpLDAPadmin can bind at boot to pre-load schema info + validate the
+  # directory is reachable. Leave username empty to skip the pre-bind and let
+  # every visitor authenticate as themselves.
+  #
+  # When set, the chart looks for `bindpw` in <existingSecret>; if the Secret
+  # doesn't exist and existingSecret is empty, a Secret is auto-generated with
+  # a random 32-char password so the deployment doesn't leave a placeholder
+  # credential behind. Whichever password lands there must ALSO exist in the
+  # LDAP directory — the sibling openldap subchart can seed it via
+  # `openldap.users`:
+  #
+  #   openldap:
+  #     users:
+  #       - uid: phpldapadmin
+  #         givenName: phpLDAPadmin
+  #         sn: bot
+  #         existingSecret: my-phpldapadmin-secret     # or reuse the auto one
+  bind:
+    username: ""                      # e.g. cn=phpldapadmin,ou=users,dc=example,dc=org
+    existingSecret: ""                # Secret with key `bindpw`
+
+  # =============================================================================
+  # App
+  # =============================================================================
+  app:
+    # Base URL exposed to the browser. Overwritten if ingress.host is set.
+    url: "http://localhost:8080"
+    timezone: "UTC"
+    # APP_KEY (Laravel) — chart-managed; auto-generated on first install and
+    # preserved across upgrades via `lookup`. Set to reuse an existing Secret
+    # carrying the key `app-key` (base64:<32-byte-key>).
+    keyExistingSecret: ""
+
+  # =============================================================================
+  # Networking
+  # =============================================================================
+  service:
+    type: ClusterIP
+    port: 8080
+    annotations: {}
+
+  # =============================================================================
+  # Ingress
+  # =============================================================================
+  # phpLDAPadmin IS HTTP — no ssl-passthrough gymnastics. The chart supports
+  # the same two modes as the openldap subchart: ingress-nginx (with an
+  # optional TLS Secret) or Gateway API (HTTPRoute).
+  ingress:
+    enabled: false
+    # ingress-nginx | gateway-api
+    mode: ingress-nginx
+    host: ""                          # required when enabled
+
+    # TLS Secret to serve HTTPS on. Empty = plain HTTP.
+    tls:
+      enabled: false
+      # cert-manager Certificate CR emitted for this host.
+      certManager:
+        enabled: false
+        issuerRef:
+          name: ""
+          kind: ClusterIssuer
+      # Existing Secret carrying tls.crt + tls.key.
+      existingSecret: ""
+
+    ingressNginx:
+      className: nginx
+      annotations: {}
+
+    gatewayAPI:
+      gatewayClassName: ""
+      gatewayName: ""                 # empty => chart provisions one
+      gatewayNamespace: ""
+      listenerName: https
+      port: 443
+
+  # =============================================================================
+  # Hardening
+  # =============================================================================
+  serviceAccount:
+    create: true
+    name: ""
+    annotations: {}
+    automountServiceAccountToken: false
+
+  podSecurityContext:
+    # The phpldapadmin/phpldapadmin:2.x image ships an /sbin/init-docker
+    # entrypoint that runs as root, chown's Laravel's writable dirs (which
+    # live INSIDE /app and cannot be relocated to an emptyDir without losing
+    # image content like storage/framework/views), then serves via Caddy on
+    # 8080. Running non-root or with a read-only root FS breaks it. The
+    # trade-off is documented — if you need PSA restricted, rebuild the image
+    # to run as an unprivileged user with mutable state under emptyDir mounts.
+    seccompProfile:
+      type: RuntimeDefault
+
+  securityContext:
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: false
+    capabilities:
+      drop: [ALL]
+      # init-docker needs to chown /app + su-exec into www-data.
+      add: [CHOWN, SETUID, SETGID, DAC_OVERRIDE, FOWNER, NET_BIND_SERVICE]
+
+  resources:
+    requests: { cpu: 50m, memory: 128Mi }
+    limits:   { cpu: 500m, memory: 512Mi }
+
+  podAnnotations: {}
+  podLabels: {}
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  topologySpreadConstraints: []
+
+  # =============================================================================
+  # Extension points — inject arbitrary volumes / mounts / containers / manifests
+  # without forking the chart.
+  # =============================================================================
+  extraEnv: []
+  extraVolumes: []
+  extraVolumeMounts: []
+  extraInitContainers: []
+  sidecars: []
+  extraDeploy: []
+
+  livenessProbe:
+    httpGet:
+      path: /
+      port: http
+    initialDelaySeconds: 30
+    periodSeconds: 30
+
+  readinessProbe:
+    httpGet:
+      path: /
+      port: http
+    initialDelaySeconds: 5
+    periodSeconds: 10
+
+# =============================================================================
+# self-service-password — LTB end-user password change / reset UI
+# =============================================================================
 self-service-password:
-  # LTB Self Service Password. See
-  # kubernetes/charts/openldap-stack/charts/self-service-password/values.yaml
-  # for the full value tree. Enabling this requires a bind account in LDAP —
-  # declare it via openldap.users (uid: ssp) and pass its Secret name via
-  #   self-service-password.ldap.bind.existingSecret:
   enabled: false
+
+
+  image:
+    repository: ltbproject/self-service-password
+    tag: "1.7.3"
+    pullPolicy: IfNotPresent
+
+  replicaCount: 1
+
+  # =============================================================================
+  # LDAP connection
+  # =============================================================================
+  # Host defaults to `<release>-openldap.<ns>.svc.cluster.local` when the
+  # openldap subchart is installed under the same release.
+  ldap:
+    host: ""                          # auto if empty
+    port: 389
+    # ldap | ldaps | starttls
+    connection: ldap
+    baseDN: dc=example,dc=org
+    loginAttribute: uid
+
+    # Bind account SSP uses to look up users. Needs `read` on the user subtree.
+    # Recommended: declare a matching `openldap.users` entry with uid=ssp so
+    # the openldap sync Job creates the user + password Secret automatically,
+    # then set bind.existingSecret to that Secret name (`<release>-openldap-user-ssp`).
+    bind:
+      dn: "cn=ssp,ou=users,dc=example,dc=org"
+      existingSecret: ""              # Secret carrying the bind password
+      secretKey: password             # Key inside the Secret (matches openldap sync default)
+
+    # StartTLS / LDAPS trust anchor when talking to slapd over TLS. Pointing
+    # at the openldap chart's TLS Secret (backend=job/cert-manager) is the
+    # common case.
+    tls:
+      caExistingSecret: ""            # Secret with a `ca.crt` key
+      reqcert: "hard"                 # hard | try | allow | never
+
+  # =============================================================================
+  # General config (config.inc.local.php)
+  # =============================================================================
+  general:
+    # Server-side keyphrase used for token generation. Auto-generated + stored
+    # in <release>-self-service-password-keyphrase and preserved across upgrades.
+    # Override with an existingSecret carrying key `keyphrase`.
+    keyphraseExistingSecret: ""
+
+    debug: false
+    language: "en"
+    allowedLanguages: ["en", "fr"]
+
+  # =============================================================================
+  # Password policy — mirrors self-service-password's config_ppolicy.
+  # =============================================================================
+  passwordPolicy:
+    hash: "auto"                      # auto | SSHA | SHA | SMD5 | MD5 | CRYPT | clear
+    minLength: 12
+    maxLength: 64
+    minLower: 1
+    minUpper: 1
+    minDigit: 1
+    minSpecial: 1
+    specialChars: "^a-zA-Z0-9"
+    noSpecialAtEnds: true
+    noReuse: true
+    diffLastMinChars: 2
+    showPolicy: "always"              # never | always | onerror
+    showPolicyPos: "above"            # above | below
+    usePwnedPasswords: false
+
+  # =============================================================================
+  # Feature toggles (disabled by default — mail SMTP wiring in extraConfig)
+  # =============================================================================
+  useTokens: false
+  useQuestions: false
+  useSms: false
+
+  # =============================================================================
+  # Mail (optional — populate when useTokens=true and you want email links)
+  # =============================================================================
+  mail:
+    from: ""
+    fromName: ""
+    smtpHost: ""
+    smtpPort: 587
+    smtpAuth: false
+    smtpUser: ""
+    smtpSecure: "tls"                 # "" | tls | ssl
+    # SMTP password Secret + key (Secret pre-created, or leave empty).
+    smtpPasswordExistingSecret: ""
+    smtpPasswordKey: password
+
+  # =============================================================================
+  # Extra config — raw PHP lines appended to config.inc.local.php verbatim.
+  # Use this escape hatch for anything the values above don't expose.
+  # =============================================================================
+  extraConfig: ""
+  # Example:
+  #   extraConfig: |
+  #     $logo = "images/ltb-logo.png";
+  #     $custom_css = "css/custom.css";
+
+  # =============================================================================
+  # Networking
+  # =============================================================================
+  service:
+    type: ClusterIP
+    port: 80
+    annotations: {}
+
+  # =============================================================================
+  # Ingress — HTTP UI, same shape as the phpldapadmin subchart.
+  # =============================================================================
+  ingress:
+    enabled: false
+    mode: ingress-nginx               # ingress-nginx | gateway-api
+    host: ""
+
+    tls:
+      enabled: false
+      certManager:
+        enabled: false
+        issuerRef:
+          name: ""
+          kind: ClusterIssuer
+      existingSecret: ""
+
+    ingressNginx:
+      className: nginx
+      annotations: {}
+
+    gatewayAPI:
+      gatewayClassName: ""
+      gatewayName: ""
+      gatewayNamespace: ""
+      listenerName: https
+      port: 443
+
+  # =============================================================================
+  # Hardening
+  # =============================================================================
+  serviceAccount:
+    create: true
+    name: ""
+    annotations: {}
+    automountServiceAccountToken: false
+
+  podSecurityContext:
+    seccompProfile:
+      type: RuntimeDefault
+
+  securityContext:
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: false
+    capabilities:
+      drop: [ALL]
+      # LTB's Apache/PHP-FPM image starts as root, drops to www-data.
+      add: [CHOWN, SETUID, SETGID, DAC_OVERRIDE, NET_BIND_SERVICE]
+
+  resources:
+    requests: { cpu: 50m, memory: 128Mi }
+    limits:   { cpu: 500m, memory: 512Mi }
+
+  podAnnotations: {}
+  podLabels: {}
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  topologySpreadConstraints: []
+
+  # =============================================================================
+  # Extension points — inject arbitrary volumes / mounts / containers / manifests
+  # without forking the chart.
+  # =============================================================================
+  extraEnv: []
+  extraVolumes: []
+  extraVolumeMounts: []
+  extraInitContainers: []
+  sidecars: []
+  extraDeploy: []
+
+  livenessProbe:
+    httpGet:
+      path: /
+      port: http
+    initialDelaySeconds: 15
+    periodSeconds: 30
+
+  readinessProbe:
+    httpGet:
+      path: /
+      port: http
+    initialDelaySeconds: 5
+    periodSeconds: 10

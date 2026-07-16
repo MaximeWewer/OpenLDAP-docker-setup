@@ -1,0 +1,52 @@
+{{ template "chart.header" . }}
+
+{{ template "chart.description" . }}
+
+## TL;DR
+
+```bash
+helm upgrade --install ldap kubernetes/charts/openldap-stack \
+  --namespace ldap --create-namespace
+```
+
+Then retrieve the auto-generated admin credentials:
+
+```bash
+kubectl -n ldap get secret ldap-openldap-admin \
+  -o jsonpath='{.data.admin-password}' | base64 -d ; echo
+```
+
+## Bundled subcharts
+
+| Subchart | Default | Purpose |
+|----------|---------|---------|
+| `openldap` | enabled  | OpenLDAP 2.6 server — StatefulSet, cn=config bootstrap, HA (standalone / mirror / multi-master), delta-syncrepl, TLS backends, backup, monitoring |
+| `phpldapadmin` | disabled | Web UI for browsing / editing the directory |
+| `self-service-password` | disabled | End-user password change / reset UI (LTB) |
+
+Enable the UIs with `--set phpldapadmin.enabled=true` and/or
+`--set self-service-password.enabled=true`.
+
+## Documentation
+
+- Recipes (dev PoC, small prod, multi-DC, GitOps): [`../../docs/recipes.md`](../../docs/recipes.md)
+- Troubleshooting (23 real failure modes): [`../../docs/troubleshooting.md`](../../docs/troubleshooting.md)
+- Upgrade / uninstall lifecycle: [`../../docs/upgrade-uninstall.md`](../../docs/upgrade-uninstall.md)
+- Backup / DR playbook: [`../../docs/backup-restore.md`](../../docs/backup-restore.md)
+- Sizing & MAP_FULL recipe: [`../../docs/sizing.md`](../../docs/sizing.md)
+- Migrate from Docker Compose: [`../../docs/migrate-from-docker.md`](../../docs/migrate-from-docker.md)
+- K8s / CNI / optional-dep compatibility: [`../../docs/compatibility.md`](../../docs/compatibility.md)
+- GitOps (Argo CD + Flux): [`../../gitops/`](../../gitops/)
+- Cross-cluster HA bootstrap: [`../../cross-cluster/README.md`](../../cross-cluster/README.md)
+
+## Regenerating this README
+
+```bash
+cd kubernetes
+make docs        # helm-docs → per-chart README.md
+make docs-check  # CI staleness check
+```
+
+{{ template "chart.requirementsSection" . }}
+
+{{ template "chart.valuesSection" . }}

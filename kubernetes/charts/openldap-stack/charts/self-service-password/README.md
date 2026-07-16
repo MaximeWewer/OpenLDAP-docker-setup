@@ -1,23 +1,14 @@
 # self-service-password
 
-![Version: 0.1.0](https://img.shields.io/badge/Version-0.1.0-informational?style=flat-square) ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square) ![AppVersion: 1.7.3](https://img.shields.io/badge/AppVersion-1.7.3-informational?style=flat-square)
-
 LDAP Tool Box Self Service Password — end-user password change / reset UI.
 Config file (config.inc.local.php) rendered from values; binds against
 the sibling openldap subchart's Service by default.
 
-**Homepage:** <https://github.com/MaximeWewer/OpenLDAP-docker-setup>
-
-## Maintainers
-
-| Name | Email | Url |
-| ---- | ------ | --- |
-| MaximeWewer |  | <https://github.com/MaximeWewer> |
-
-## Source Code
-
-* <https://github.com/MaximeWewer/OpenLDAP-docker-setup>
-* <https://github.com/ltb-project/self-service-password>
+Normally installed via the umbrella [`openldap-stack`](../..) with
+`--set self-service-password.enabled=true`. Requires an LDAP bind
+account — declare it via `openldap.users` (uid: ssp) and point
+`self-service-password.ldap.bind.existingSecret` at the auto-generated
+Secret `<release>-openldap-user-ssp`.
 
 ## Requirements
 
