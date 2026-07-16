@@ -55,9 +55,9 @@ Kubernetes: `>=1.27.0-0`
 
 | Repository | Name | Version |
 |------------|------|---------|
-| file://charts/openldap | openldap | 0.1.0 |
-| file://charts/phpldapadmin | phpldapadmin | 0.1.0 |
-| file://charts/self-service-password | self-service-password | 0.1.0 |
+| file://charts/openldap | openldap | 2026.7.1 |
+| file://charts/phpldapadmin | phpldapadmin | 2026.7.1 |
+| file://charts/self-service-password | self-service-password | 2026.7.1 |
 
 ## Values
 
@@ -110,7 +110,7 @@ Kubernetes: `>=1.27.0-0`
 | openldap.cli.downloadUrl | string | `"https://github.com/maximewewer/openldap-cli/releases/download"` |  |
 | openldap.cli.image.pullPolicy | string | `"IfNotPresent"` |  |
 | openldap.cli.image.repository | string | `"alpine"` |  |
-| openldap.cli.image.tag | string | `"3.19"` |  |
+| openldap.cli.image.tag | string | `"3.22"` |  |
 | openldap.cli.kubectlVersion | string | `"v1.29.4"` |  |
 | openldap.cli.resources.limits.cpu | string | `"500m"` |  |
 | openldap.cli.resources.limits.memory | string | `"256Mi"` |  |
@@ -165,7 +165,7 @@ Kubernetes: `>=1.27.0-0`
 | openldap.initImage.packages | string | `"openldap openldap-clients openldap-back-mdb openldap-overlay-all"` |  |
 | openldap.initImage.pullPolicy | string | `"IfNotPresent"` |  |
 | openldap.initImage.repository | string | `"alpine"` |  |
-| openldap.initImage.tag | string | `"3.19"` |  |
+| openldap.initImage.tag | string | `"3.22"` |  |
 | openldap.livenessProbe.failureThreshold | int | `6` |  |
 | openldap.livenessProbe.initialDelaySeconds | int | `30` |  |
 | openldap.livenessProbe.periodSeconds | int | `30` |  |
@@ -176,7 +176,7 @@ Kubernetes: `>=1.27.0-0`
 | openldap.monitoring.exporter.extraEnv | list | `[]` |  |
 | openldap.monitoring.exporter.image.pullPolicy | string | `"IfNotPresent"` |  |
 | openldap.monitoring.exporter.image.repository | string | `"ghcr.io/maximewewer/openldap_prometheus_exporter"` |  |
-| openldap.monitoring.exporter.image.tag | string | `"latest"` |  |
+| openldap.monitoring.exporter.image.tag | string | `"v2026.7.1"` |  |
 | openldap.monitoring.exporter.port | int | `9330` |  |
 | openldap.monitoring.exporter.resources.limits.cpu | string | `"200m"` |  |
 | openldap.monitoring.exporter.resources.limits.memory | string | `"128Mi"` |  |
@@ -305,7 +305,7 @@ Kubernetes: `>=1.27.0-0`
 | openldap.tls.job.commonName | string | `""` |  |
 | openldap.tls.job.image.pullPolicy | string | `"IfNotPresent"` |  |
 | openldap.tls.job.image.repository | string | `"alpine"` |  |
-| openldap.tls.job.image.tag | string | `"3.19"` |  |
+| openldap.tls.job.image.tag | string | `"3.22"` |  |
 | openldap.tls.job.renewThresholdDays | int | `30` |  |
 | openldap.tls.job.resources.limits.cpu | string | `"200m"` |  |
 | openldap.tls.job.resources.limits.memory | string | `"128Mi"` |  |
@@ -406,7 +406,7 @@ Kubernetes: `>=1.27.0-0`
 | self-service-password.general.language | string | `"en"` |  |
 | self-service-password.image.pullPolicy | string | `"IfNotPresent"` |  |
 | self-service-password.image.repository | string | `"ltbproject/self-service-password"` |  |
-| self-service-password.image.tag | string | `"1.7.3"` |  |
+| self-service-password.image.tag | string | `"1.8.1"` |  |
 | self-service-password.ingress.enabled | bool | `false` |  |
 | self-service-password.ingress.gatewayAPI.gatewayClassName | string | `""` |  |
 | self-service-password.ingress.gatewayAPI.gatewayName | string | `""` |  |

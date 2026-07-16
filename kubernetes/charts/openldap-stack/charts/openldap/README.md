@@ -63,7 +63,7 @@ Kubernetes: `>=1.27.0-0`
 | cli.downloadUrl | string | `"https://github.com/maximewewer/openldap-cli/releases/download"` |  |
 | cli.image.pullPolicy | string | `"IfNotPresent"` |  |
 | cli.image.repository | string | `"alpine"` |  |
-| cli.image.tag | string | `"3.19"` |  |
+| cli.image.tag | string | `"3.22"` |  |
 | cli.kubectlVersion | string | `"v1.29.4"` |  |
 | cli.resources.limits.cpu | string | `"500m"` |  |
 | cli.resources.limits.memory | string | `"256Mi"` |  |
@@ -117,7 +117,7 @@ Kubernetes: `>=1.27.0-0`
 | initImage.packages | string | `"openldap openldap-clients openldap-back-mdb openldap-overlay-all"` |  |
 | initImage.pullPolicy | string | `"IfNotPresent"` |  |
 | initImage.repository | string | `"alpine"` |  |
-| initImage.tag | string | `"3.19"` |  |
+| initImage.tag | string | `"3.22"` |  |
 | livenessProbe.failureThreshold | int | `6` |  |
 | livenessProbe.initialDelaySeconds | int | `30` |  |
 | livenessProbe.periodSeconds | int | `30` |  |
@@ -128,7 +128,7 @@ Kubernetes: `>=1.27.0-0`
 | monitoring.exporter.extraEnv | list | `[]` |  |
 | monitoring.exporter.image.pullPolicy | string | `"IfNotPresent"` |  |
 | monitoring.exporter.image.repository | string | `"ghcr.io/maximewewer/openldap_prometheus_exporter"` |  |
-| monitoring.exporter.image.tag | string | `"latest"` |  |
+| monitoring.exporter.image.tag | string | `"v2026.7.1"` |  |
 | monitoring.exporter.port | int | `9330` |  |
 | monitoring.exporter.resources.limits.cpu | string | `"200m"` |  |
 | monitoring.exporter.resources.limits.memory | string | `"128Mi"` |  |
@@ -257,7 +257,7 @@ Kubernetes: `>=1.27.0-0`
 | tls.job.commonName | string | `""` |  |
 | tls.job.image.pullPolicy | string | `"IfNotPresent"` |  |
 | tls.job.image.repository | string | `"alpine"` |  |
-| tls.job.image.tag | string | `"3.19"` |  |
+| tls.job.image.tag | string | `"3.22"` |  |
 | tls.job.renewThresholdDays | int | `30` |  |
 | tls.job.resources.limits.cpu | string | `"200m"` |  |
 | tls.job.resources.limits.memory | string | `"128Mi"` |  |

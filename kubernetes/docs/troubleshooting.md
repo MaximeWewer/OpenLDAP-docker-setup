@@ -22,7 +22,7 @@ Common causes:
 | `Partial state detected (no success marker) — wiping and restarting` | Previous slapadd errored mid-run | Chart auto-recovers on next init pass. Watch a couple of restarts before intervening. |
 | `str2entry: entry -1 has multiple DNs` | LDIF merge lost a blank line between entries — user extraConfig error | Compare the rendered `bootstrap` ConfigMap to the source template. |
 | `Admin secrets missing under /secrets` | The `<release>-openldap-admin` Secret was deleted or references a wrong `existingSecret` | Re-create the Secret with keys `admin-password` + `config-admin-password` (base64) |
-| `apk add failed after 5 attempts` | Alpine mirror unreachable / DNS broken | Check DNS + egress on the node (test `alpine:3.19` pod running `apk update`). |
+| `apk add failed after 5 attempts` | Alpine mirror unreachable / DNS broken | Check DNS + egress on the node (test `alpine:3.22` pod running `apk update`). |
 | `Replicator secret missing under /replicator` | `mode != standalone` but replicator Secret absent | The chart creates it automatically unless `replication.replicator.existingSecret` is set. Verify it wasn't manually deleted. |
 
 ### 2. Main container `Error` / `CrashLoopBackOff` (init OK)

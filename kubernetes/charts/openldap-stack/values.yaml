@@ -37,7 +37,7 @@ openldap:
   # initContainer installs them at runtime so no custom image build is needed.
   initImage:
     repository: alpine
-    tag: "3.19"
+    tag: "3.22"
     pullPolicy: IfNotPresent
     # Additional apk packages to install for the bootstrap (kept minimal).
     packages: "openldap openldap-clients openldap-back-mdb openldap-overlay-all"
@@ -308,7 +308,7 @@ openldap:
       rollingRestartOnRenew: true
       image:
         repository: alpine
-        tag: "3.19"
+        tag: "3.22"
         pullPolicy: IfNotPresent
       resources:
         requests: { cpu: 20m, memory: 32Mi }
@@ -433,7 +433,7 @@ openldap:
   cli:
     image:
       repository: alpine
-      tag: "3.19"
+      tag: "3.22"
       pullPolicy: IfNotPresent
     version: "v2026.7.3"
     downloadUrl: "https://github.com/maximewewer/openldap-cli/releases/download"
@@ -693,7 +693,7 @@ openldap:
     exporter:
       image:
         repository: ghcr.io/maximewewer/openldap_prometheus_exporter
-        tag: latest
+        tag: v2026.7.1
         pullPolicy: IfNotPresent
       port: 9330
 
@@ -1137,7 +1137,7 @@ self-service-password:
 
   image:
     repository: ltbproject/self-service-password
-    tag: "1.7.3"
+    tag: "1.8.1"
     pullPolicy: IfNotPresent
 
   replicaCount: 1

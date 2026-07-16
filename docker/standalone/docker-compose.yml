@@ -59,7 +59,7 @@ services:
         "max-file": "5"
 
   selfservice-password:
-    image: ltbproject/self-service-password:1.7.3
+    image: ltbproject/self-service-password:1.8.1
     container_name: selfservice-password
     hostname: selfservice-password
     restart: always

@@ -49,7 +49,7 @@ matching feature is enabled.
 
 - **Runtime**: `cleanstart/openldap:2.6.13` (distroless, ~55 MB). Ships
   slapd + back_mdb + overlays; no shell.
-- **Init**: `alpine:3.19` (~7 MB). Installs `openldap`,
+- **Init**: `alpine:3.22` (~7 MB). Installs `openldap`,
   `openldap-back-mdb`, `openldap-overlay-all`, `openldap-clients` at
   runtime — the OpenLDAP version pulled from Alpine is 2.6.6, which is
   wire-compatible with cleanstart 2.6.13 for slapadd bootstrap.
@@ -71,7 +71,7 @@ Both hold across every 2.6 release.
 
 ## Prometheus exporter
 
-- Image: `ghcr.io/maximewewer/openldap_prometheus_exporter:latest`
+- Image: `ghcr.io/maximewewer/openldap_prometheus_exporter:v2026.7.1`
   (pin a tag in prod). Exposes port 9330.
 - Binds as `cn=adminconfig,cn=config`.
 

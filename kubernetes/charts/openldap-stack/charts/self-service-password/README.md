@@ -32,7 +32,7 @@ Kubernetes: `>=1.27.0-0`
 | general.language | string | `"en"` |  |
 | image.pullPolicy | string | `"IfNotPresent"` |  |
 | image.repository | string | `"ltbproject/self-service-password"` |  |
-| image.tag | string | `"1.7.3"` |  |
+| image.tag | string | `"1.8.1"` |  |
 | ingress.enabled | bool | `false` |  |
 | ingress.gatewayAPI.gatewayClassName | string | `""` |  |
 | ingress.gatewayAPI.gatewayName | string | `""` |  |

@@ -4,7 +4,7 @@
 
 image:
   repository: ltbproject/self-service-password
-  tag: "1.7.3"
+  tag: "1.8.1"
   pullPolicy: IfNotPresent
 
 replicaCount: 1
