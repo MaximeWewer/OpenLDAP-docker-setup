@@ -48,6 +48,15 @@ kubernetes/
 │           ├── openldap/          # OpenLDAP StatefulSet + bootstrap
 │           ├── phpldapadmin/      # web UI for browsing / editing
 │           └── self-service-password/  # end-user password change
+├── docs/                          # operator handbook
+│   ├── recipes.md                 # copy-paste values overlays per use case
+│   ├── troubleshooting.md         # failure modes → diagnostic commands
+│   ├── upgrade-uninstall.md       # lifecycle, rollback, keep vs prune
+│   ├── backup-restore.md          # DR playbook + restore recipes
+│   ├── sizing.md                  # scaling guide, LMDB mapsize, MAP_FULL recipe
+│   ├── migrate-from-docker.md     # moving from `../docker/` to the chart
+│   ├── values-reference.md        # most-tuned values + helm-docs pointer
+│   └── compatibility.md           # K8s / Helm / optional-dep matrix
 ├── gitops/                        # Argo CD + Flux reference manifests
 │   ├── argocd/
 │   └── flux/
@@ -55,13 +64,24 @@ kubernetes/
     └── README.md
 ```
 
-Read [`gitops/README.md`](./gitops/README.md) before wiring Argo CD or
-Flux — Helm hooks, the chart's Secret preservation trick and Server-Side
-Apply have a couple of gotchas worth knowing.
+Start with [`docs/recipes.md`](./docs/recipes.md) — it's the fastest way
+to get a working overlay for your target shape (dev PoC, small prod,
+multi-DC, GitOps-managed).
 
-Read [`cross-cluster/README.md`](./cross-cluster/README.md) when you want
-to stitch two or more clusters into a multi-master mesh with
-`replication.externalPeers`.
+Then, as needed:
+
+- Something failed? [`docs/troubleshooting.md`](./docs/troubleshooting.md).
+- Rolling out or rolling back? [`docs/upgrade-uninstall.md`](./docs/upgrade-uninstall.md).
+- Disaster recovery? [`docs/backup-restore.md`](./docs/backup-restore.md).
+- Sizing / capacity planning? [`docs/sizing.md`](./docs/sizing.md).
+- Migrating an existing Docker Compose stack? [`docs/migrate-from-docker.md`](./docs/migrate-from-docker.md).
+- Wiring Argo CD or Flux? [`gitops/README.md`](./gitops/README.md) — Helm
+  hooks, the chart's Secret preservation trick and Server-Side Apply have
+  a couple of gotchas worth knowing.
+- Stitching two or more clusters into a multi-master mesh?
+  [`cross-cluster/README.md`](./cross-cluster/README.md).
+- Full values reference? [`docs/values-reference.md`](./docs/values-reference.md)
+  (or the annotated `values.yaml` of each subchart directly).
 
 ## Self Service Password
 
