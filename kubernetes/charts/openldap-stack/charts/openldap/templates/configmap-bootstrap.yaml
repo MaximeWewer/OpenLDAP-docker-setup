@@ -308,9 +308,28 @@ data:
     olcDbIndex: entryCSN,entryUUID eq
     {{- end }}
     olcMonitoring: TRUE
-    olcAccess: {{ "{" }}0{{ "}" }}to attrs=userPassword by self write by dn.exact="{{ .Values.admin.bindDN }}" write {{ if $ha }}by dn.exact="{{ .Values.replication.replicator.dn }},{{ .Values.directory.suffix }}" read {{ end }}by anonymous auth by * none
-    olcAccess: {{ "{" }}1{{ "}" }}to dn.subtree="ou=policies,{{ .Values.directory.suffix }}" by * read
-    olcAccess: {{ "{" }}2{{ "}" }}to dn.subtree="{{ .Values.directory.suffix }}" by dn.exact="{{ .Values.admin.bindDN }}" write {{ if $ha }}by dn.exact="{{ .Values.replication.replicator.dn }},{{ .Values.directory.suffix }}" read {{ end }}by users read by * none
+    {{- /*
+      ACL block on {1}mdb — either the user-provided customAcls (full
+      replacement) or the chart defaults + any extraAcls (append). Every
+      entry is `tpl`-rendered so users can reference values.
+    */ -}}
+    {{- $acls := .Values.customAcls -}}
+    {{- if not $acls -}}
+      {{- $acls = list -}}
+      {{- $adminDN := .Values.admin.bindDN -}}
+      {{- $suffix  := .Values.directory.suffix -}}
+      {{- $replDN  := "" -}}
+      {{- if $ha }}{{- $replDN = printf "%s,%s" .Values.replication.replicator.dn .Values.directory.suffix -}}{{- end }}
+      {{- $acls = append $acls (printf `to attrs=userPassword by self write by dn.exact="%s" write %sby anonymous auth by * none` $adminDN (ternary (printf `by dn.exact="%s" read ` $replDN) "" $ha)) -}}
+      {{- $acls = append $acls (printf `to dn.subtree="ou=policies,%s" by * read` $suffix) -}}
+      {{- $acls = append $acls (printf `to dn.subtree="%s" by dn.exact="%s" write %sby users read by * none` $suffix $adminDN (ternary (printf `by dn.exact="%s" read ` $replDN) "" $ha)) -}}
+      {{- range .Values.extraAcls -}}
+        {{- $acls = append $acls . -}}
+      {{- end -}}
+    {{- end }}
+    {{- range $i, $rule := $acls }}
+    olcAccess: {{ printf "{%d}" $i }}{{ tpl $rule $ }}
+    {{- end }}
     __SYNCREPL_BLOCK__
     __MIRRORMODE_LINE__
     {{ if $ha }}

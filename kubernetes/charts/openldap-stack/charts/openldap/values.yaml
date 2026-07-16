@@ -113,6 +113,33 @@ customLdifs:
   existingConfigMap: ""
 
 # =============================================================================
+# ACLs (olcAccess on the main mdb database)
+# =============================================================================
+# Chart default ACL block (rendered when customAcls is empty):
+#   0. userPassword: self write, admin write, [ha: replicator read], anon auth
+#   1. ou=policies: readable by all
+#   2. <suffix> subtree: admin write, [ha: replicator read], users read
+#
+# Every string here is rendered through Helm's `tpl` — reference
+# {{ .Values.directory.suffix }}, {{ .Values.admin.bindDN }}, etc.
+# Do NOT include the `{N}` index prefix — the chart numbers them in
+# order (customAcls first, then extraAcls).
+
+# REPLACE the chart's default ACL block entirely. Empty = use defaults.
+customAcls: []
+# Example — lock the tree down to admin + designated groups:
+#   customAcls:
+#     - 'to attrs=userPassword by self write by dn.exact="{{ .Values.admin.bindDN }}" write by anonymous auth by * none'
+#     - 'to dn.subtree="ou=groups,{{ .Values.directory.suffix }}" by group.exact="cn=group-admins,ou=groups,{{ .Values.directory.suffix }}" write by users read by * none'
+#     - 'to dn.subtree="{{ .Values.directory.suffix }}" by dn.exact="{{ .Values.admin.bindDN }}" write by users read by * none'
+
+# APPEND to the chart's default ACL block. Ignored when customAcls is set.
+extraAcls: []
+# Example — grant a Grafana bot read-only access:
+#   extraAcls:
+#     - 'to dn.subtree="ou=users,{{ .Values.directory.suffix }}" by dn.exact="cn=grafana,ou=service-accounts,{{ .Values.directory.suffix }}" read by * break'
+
+# =============================================================================
 # Admin credentials
 # =============================================================================
 admin:
