@@ -17,7 +17,7 @@ openldap:
     replicator:
       existingSecret: openldap-replicator-shared
     externalPeers:
-      - ldaps://192.168.58.21:30636       # dc2 NodePort
+      - ldaps://192.168.59.21:30636       # dc2 NodePort
 
   tls:
     enabled: true
@@ -26,7 +26,7 @@ openldap:
       secretName: openldap-tls-shared
 
   # Expose LDAPS on NodePort 30636 so dc2 can reach it over the private
-  # Vagrant network (192.168.58.0/24). Plaintext LDAP stays cluster-local.
+  # Vagrant network (192.168.59.0/24). Plaintext LDAP stays cluster-local.
   service:
     type: NodePort
     enableLdapPort: false

@@ -5,14 +5,14 @@
 #
 # Outputs (in this directory):
 #   ca.crt / ca.key       shared CA
-#   dc1/tls.crt+key       server cert with SAN=192.168.58.20,dc1
-#   dc2/tls.crt+key       server cert with SAN=192.168.58.21,dc2
+#   dc1/tls.crt+key       server cert with SAN=192.168.59.20,dc1
+#   dc2/tls.crt+key       server cert with SAN=192.168.59.21,dc2
 set -euo pipefail
 
 cd "$(dirname "$0")"
 
-DC1_IP="${DC1_IP:-192.168.58.20}"
-DC2_IP="${DC2_IP:-192.168.58.21}"
+DC1_IP="${DC1_IP:-192.168.59.20}"
+DC2_IP="${DC2_IP:-192.168.59.21}"
 CA_DAYS="${CA_DAYS:-3650}"
 CERT_DAYS="${CERT_DAYS:-365}"
 

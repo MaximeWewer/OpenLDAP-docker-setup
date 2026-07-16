@@ -13,8 +13,8 @@ cd "$(dirname "$0")"
 : "${ADMIN_PW:?export ADMIN_PW to the value install.sh printed}"
 : "${CONVERGE_WAIT:=15}"
 
-DC1_HOST="192.168.58.20"
-DC2_HOST="192.168.58.21"
+DC1_HOST="192.168.59.20"
+DC2_HOST="192.168.59.21"
 
 ldap_search_via() {
   # $1 = VM name (dc1/dc2), $2 = search base, $3 = filter, ...

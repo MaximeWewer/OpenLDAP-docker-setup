@@ -16,7 +16,7 @@
 # iteratively without recreating the VMs.
 
 BOX           = ENV.fetch("VAGRANT_BOX", "cloud-image/ubuntu-26.04")
-SUBNET_PREFIX = "192.168.58"
+SUBNET_PREFIX = "192.168.59"
 DC1_IP        = "#{SUBNET_PREFIX}.20"
 DC2_IP        = "#{SUBNET_PREFIX}.21"
 MEMORY        = ENV.fetch("VAGRANT_MEMORY", "6144").to_i
@@ -56,6 +56,10 @@ Vagrant.configure("2") do |config|
         vb.name   = "openldap-k8s-#{name}"
         vb.memory = MEMORY
         vb.cpus   = CPUS
+        # I/O APIC is required for the guest kernel to see > 1 CPU.
+        # Without it VBox pins the guest to 1 vCPU regardless of `vb.cpus`,
+        # which fails minikube's `RSRC_INSUFFICIENT_CORES` precheck.
+        vb.customize ["modifyvm", :id, "--ioapic", "on"]
       end
 
       node.vm.provision "shell", path: "provision.sh", env: {

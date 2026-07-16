@@ -90,14 +90,24 @@ apt-get -o DPkg::Lock::Timeout=600 install -yq ldap-utils
 # from the OTHER VM (or the host) can't reach it. We don't need
 # cross-cluster kubectl access here, but keep the flag for future use.
 # ---------------------------------------------------------------------------
-sudo -u vagrant -H bash -euo pipefail <<EOF
+# Compute resources OUTSIDE the heredoc — dodges locale-sensitive parsing
+# of `free -m`. /proc/meminfo is always English + numeric.
+CPU_COUNT="$(nproc)"
+MEM_MB="$(awk '/^MemTotal:/{print int($2/1024) - 1024}' /proc/meminfo)"
+
+sudo -u vagrant -H \
+  KUBECTL_VERSION="${KUBECTL_VERSION}" \
+  NODE_IP="${NODE_IP}" \
+  CPU_COUNT="${CPU_COUNT}" \
+  MEM_MB="${MEM_MB}" \
+  bash -euo pipefail <<'EOF'
 export MINIKUBE_HOME=/home/vagrant/.minikube
 if ! minikube status -p minikube >/dev/null 2>&1; then
-  echo '=== starting minikube ==='
+  echo "=== starting minikube (cpus=${CPU_COUNT} mem=${MEM_MB}Mi) ==="
   minikube start --driver=docker \
-    --cpus=$(nproc) --memory=$((\$(free -m | awk '/^Mem:/{print \$2}') - 1024)) \
-    --kubernetes-version=${KUBECTL_VERSION} \
-    --apiserver-ips=${NODE_IP}
+    --cpus="${CPU_COUNT}" --memory="${MEM_MB}" \
+    --kubernetes-version="${KUBECTL_VERSION}" \
+    --apiserver-ips="${NODE_IP}"
 else
   echo '=== minikube already running ==='
 fi

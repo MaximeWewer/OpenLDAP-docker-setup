@@ -17,7 +17,7 @@ openldap:
     replicator:
       existingSecret: openldap-replicator-shared
     externalPeers:
-      - ldaps://192.168.58.20:30636       # dc1 NodePort
+      - ldaps://192.168.59.20:30636       # dc1 NodePort
 
   tls:
     enabled: true

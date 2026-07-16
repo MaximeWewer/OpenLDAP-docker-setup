@@ -16,13 +16,13 @@ Use this to:
 
 ```
 kubernetes/tests/cross-cluster/
-├── Vagrantfile              # 2 VMs, private_network on 192.168.58.0/24
+├── Vagrantfile              # 2 VMs, private_network on 192.168.59.0/24
 ├── provision.sh             # docker + kubectl + helm + minikube + openldap-cli + ldap-utils
 ├── shared/
 │   ├── gen-ca.sh            # generates ca.crt/key + per-cluster server certs
 │   ├── ca.crt|.key          # (gitignored) shared CA
-│   ├── dc1/tls.{crt,key}    # (gitignored) dc1 server cert, SAN=192.168.58.20
-│   └── dc2/tls.{crt,key}    # (gitignored) dc2 server cert, SAN=192.168.58.21
+│   ├── dc1/tls.{crt,key}    # (gitignored) dc1 server cert, SAN=192.168.59.20
+│   └── dc2/tls.{crt,key}    # (gitignored) dc2 server cert, SAN=192.168.59.21
 ├── dc1/values.yaml          # serverIdBase=1,  seedOnOrdinalZeroOnly=true
 ├── dc2/values.yaml          # serverIdBase=10, seedOnOrdinalZeroOnly=false
 ├── install.sh               # gen CA, push Secrets, helm install dc1, then dc2
@@ -82,7 +82,7 @@ what's in cluster.
 - Bi-directional writes — additions on either cluster converge on the
   other within `CONVERGE_WAIT` (default 15 s).
 - NodePort exposure — LDAPS is reached across the Vagrant private
-  network via `192.168.58.<other>:30636`, matching what a public LB
+  network via `192.168.59.<other>:30636`, matching what a public LB
   would look like in prod.
 
 ## What the rig does NOT prove
@@ -106,7 +106,7 @@ then the ongoing slapd log
 (`vagrant ssh dc2 -c "sudo kubectl -n ldap logs ldap-openldap-0 -c openldap"`).
 Most common causes:
 - Shared CA not pushed to dc2 → `install.sh` re-run
-- `192.168.58.20:30636` unreachable from dc2 → `vagrant ssh dc2 -c "nc -zv 192.168.58.20 30636"`
+- `192.168.59.20:30636` unreachable from dc2 → `vagrant ssh dc2 -c "nc -zv 192.168.59.20 30636"`
 - serverID collision → check both `values.yaml` set distinct `serverIdBase`.
 
 **`nc -zv` from dc2 hits `Connection refused`** — dc1's minikube didn't
