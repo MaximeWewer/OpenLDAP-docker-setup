@@ -1,0 +1,102 @@
+{{- $fullName := include "phpldapadmin.fullname" . -}}
+{{- $appUrl := .Values.app.url -}}
+{{- if and .Values.ingress.enabled .Values.ingress.host -}}
+{{- $scheme := ternary "https" "http" .Values.ingress.tls.enabled -}}
+{{- $appUrl = printf "%s://%s" $scheme .Values.ingress.host -}}
+{{- end -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $fullName }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "phpldapadmin.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "phpldapadmin.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "phpldapadmin.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: ui
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      annotations:
+        checksum/secret: {{ include (print $.Template.BasePath "/secret.yaml") . | sha256sum }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      serviceAccountName: {{ include "phpldapadmin.serviceAccountName" . }}
+      automountServiceAccountToken: {{ .Values.serviceAccount.automountServiceAccountToken }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.topologySpreadConstraints }}
+      topologySpreadConstraints:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: phpldapadmin
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          env:
+            # Laravel APP_KEY — mandatory, base64-encoded 32-byte key.
+            - name: APP_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "phpldapadmin.appKeySecretName" . }}
+                  key: app-key
+            - name: APP_URL
+              value: {{ $appUrl | quote }}
+            - name: APP_TIMEZONE
+              value: {{ .Values.app.timezone | quote }}
+            - name: LDAP_HOST
+              value: {{ include "phpldapadmin.ldapHost" . | quote }}
+            - name: LDAP_CONNECTION
+              value: {{ .Values.ldap.connection | quote }}
+            - name: LDAP_PORT
+              value: {{ .Values.ldap.port | quote }}
+            - name: LDAP_BASE_DN
+              value: {{ .Values.ldap.baseDN | quote }}
+            - name: LDAP_LOGIN_ATTR
+              value: {{ .Values.ldap.loginAttr | quote }}
+            {{- if .Values.bind.username }}
+            - name: LDAP_USERNAME
+              value: {{ .Values.bind.username | quote }}
+            - name: LDAP_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "phpldapadmin.bindSecretName" . }}
+                  key: bindpw
+            {{- end }}
+          livenessProbe:
+            {{- toYaml .Values.livenessProbe | nindent 12 }}
+          readinessProbe:
+            {{- toYaml .Values.readinessProbe | nindent 12 }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          # No extra volumeMounts — the image needs to write in-place under
+          # /app (Laravel storage/cache) and /run + /tmp (Caddy). Overlaying
+          # those with emptyDir hides the shipped default content and breaks
+          # startup. readOnlyRootFilesystem=false in values reflects this.

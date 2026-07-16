@@ -15,8 +15,8 @@ Incremental scaffold. Track progress against the roadmap below.
 | 4 | Users / groups / ppolicy sync jobs + password Secret backend | done |
 | 5 | Backup CronJob + accesslog-purge + Prometheus exporter sidecar | done |
 | 6 | Ingress (ingress-nginx + Gateway API) + cert-manager / cert Job | done |
-| 7 | Hardening pass (NetworkPolicy, PSA restricted, PDB, seccomp) | current |
-| 8 | `phpldapadmin` subchart | pending |
+| 7 | Hardening pass (NetworkPolicy, PSA restricted, PDB, seccomp) | done |
+| 8 | `phpldapadmin` subchart | current |
 | 9 | `self-service-password` subchart | pending |
 | 10 | GitOps guides (Argo CD + Flux) + cross-cluster bootstrap doc | pending |
 
@@ -35,8 +35,47 @@ kubernetes/
                 └── templates/
 ```
 
-Later PRs add `charts/openldap-stack/charts/phpldapadmin/` and
-`charts/openldap-stack/charts/self-service-password/`.
+Later PR adds `charts/openldap-stack/charts/self-service-password/`.
+
+## phpLDAPadmin
+
+`phpldapadmin.enabled: true` deploys the leenooks/phpLDAPadmin 2.x web UI
+next to the openldap subchart. LDAP host defaults to
+`<release>-openldap.<ns>.svc.cluster.local`, so no cross-subchart plumbing
+is needed when both are installed under the same release.
+
+```yaml
+phpldapadmin:
+  enabled: true
+  ingress:
+    enabled: true
+    mode: ingress-nginx
+    host: ldapadmin.example.com
+    tls:
+      enabled: true
+      certManager:
+        enabled: true
+        issuerRef: { name: internal-ca, kind: ClusterIssuer }
+```
+
+Access without ingress:
+
+```bash
+kubectl -n ldap port-forward svc/ldap-phpldapadmin 8080:8080
+```
+
+By default every visitor authenticates as themselves (the phpLDAPadmin
+`LDAP_LOGIN_ATTR` defaults to `uid`). Set `phpldapadmin.bind.username`
+if you want the app to pre-bind at startup — the chart auto-generates the
+bind password in `<release>-phpldapadmin-bind` (key `bindpw`); mirror the
+same password into the LDAP directory via `openldap.users`.
+
+**Security note**: the phpLDAPadmin 2.x image ships an init-docker
+entrypoint that must run as root and writes in-place under `/app`. The
+subchart runs it privileged (drop-all + a small capability whitelist) with
+`readOnlyRootFilesystem: false`. Rebuild the image with a non-root user
+and mutable state under emptyDir mounts if PSA `restricted` is a hard
+requirement.
 
 ## Users, groups & policies (GitOps)
 

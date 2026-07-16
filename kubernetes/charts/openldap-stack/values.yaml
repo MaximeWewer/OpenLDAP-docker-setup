@@ -23,8 +23,13 @@ openldap:
   #       size: 50Gi
   # ---------------------------------------------------------------------------
 
-# PR 8 — placeholder, not shipped yet.
 phpldapadmin:
+  # See kubernetes/charts/openldap-stack/charts/phpldapadmin/values.yaml for
+  # the full value tree. Sensible defaults auto-wire the LDAP host to
+  # `<release>-openldap.<ns>.svc.cluster.local`, so enabling this side-by-side
+  # with the openldap subchart is a one-liner:
+  #   phpldapadmin:
+  #     enabled: true
   enabled: false
 
 # PR 9 — placeholder, not shipped yet.

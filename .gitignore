@@ -20,3 +20,8 @@ docker/*/certs/*.srl
 # Backup dumps (generated per mode)
 docker/*/backup/*.tar.gz
 docker/*/backup/*.tgz
+
+# Helm — derived subchart archives from `helm dependency update` on
+# file:// deps. Chart.lock too (SHAs would drift per-dev on file:// deps).
+kubernetes/charts/*/charts/*.tgz
+kubernetes/charts/*/Chart.lock

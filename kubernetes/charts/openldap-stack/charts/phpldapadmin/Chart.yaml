@@ -1,0 +1,22 @@
+apiVersion: v2
+name: phpldapadmin
+description: |
+  phpLDAPadmin 2.x web UI for browsing and editing the OpenLDAP directory.
+  Env-driven configuration; binds against the sibling openldap subchart's
+  Service by default.
+type: application
+version: 0.1.0
+appVersion: "2.3.11"
+kubeVersion: ">=1.27.0-0"
+keywords:
+  - phpldapadmin
+  - ldap
+  - directory
+  - ui
+home: https://github.com/MaximeWewer/OpenLDAP-docker-setup
+sources:
+  - https://github.com/MaximeWewer/OpenLDAP-docker-setup
+  - https://github.com/leenooks/phpLDAPadmin
+maintainers:
+  - name: MaximeWewer
+    url: https://github.com/MaximeWewer

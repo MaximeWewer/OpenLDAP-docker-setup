@@ -27,3 +27,7 @@ dependencies:
     version: 0.1.0
     repository: "file://charts/openldap"
     condition: openldap.enabled
+  - name: phpldapadmin
+    version: 0.1.0
+    repository: "file://charts/phpldapadmin"
+    condition: phpldapadmin.enabled
