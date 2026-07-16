@@ -48,6 +48,19 @@ directory:
     - service-accounts
     - policies
 
+  # Additional schemas loaded on top of core.ldif (which is always required
+  # and loaded first). Names correspond to files under /etc/openldap/schema/
+  # in the OpenLDAP image — every standard schema ships there:
+  #   cosine, inetorgperson, dyngroup, nis, misc, java, corba, openldap,
+  #   collective, duaconf, dsee, pmi, msuser, namedobject
+  # Add `nis` to enable POSIX accounts (uidNumber, gidNumber, homeDirectory,
+  # loginShell, shadow*) — required for SSH/UNIX login backed by LDAP; the
+  # chart adds matching indexes automatically.
+  schemas:
+    - cosine
+    - inetorgperson
+    - dyngroup
+
 # =============================================================================
 # Admin credentials
 # =============================================================================

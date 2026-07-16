@@ -236,9 +236,9 @@ data:
     cn: schema
 
     include: file:///etc/openldap/schema/core.ldif
-    include: file:///etc/openldap/schema/cosine.ldif
-    include: file:///etc/openldap/schema/inetorgperson.ldif
-    include: file:///etc/openldap/schema/dyngroup.ldif
+    {{- range .Values.directory.schemas }}
+    include: file:///etc/openldap/schema/{{ . }}.ldif
+    {{- end }}
 
     dn: olcDatabase={{ "{" }}-1{{ "}" }}frontend,cn=config
     objectClass: olcDatabaseConfig
@@ -266,6 +266,9 @@ data:
     olcDbIndex: mail eq,sub
     olcDbIndex: member eq
     olcDbIndex: memberOf eq
+    {{- if has "nis" .Values.directory.schemas }}
+    olcDbIndex: uidNumber,gidNumber eq
+    {{- end }}
     {{- if $ha }}
     olcDbIndex: entryCSN,entryUUID eq
     {{- end }}
