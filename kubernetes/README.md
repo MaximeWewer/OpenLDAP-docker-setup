@@ -14,8 +14,8 @@ Incremental scaffold. Track progress against the roadmap below.
 | 3 | HA modes (mirror, multi-master, cross-cluster external peers) | done |
 | 4 | Users / groups / ppolicy sync jobs + password Secret backend | done |
 | 5 | Backup CronJob + accesslog-purge + Prometheus exporter sidecar | done |
-| 6 | Ingress (ingress-nginx + Gateway API) + cert-manager / cert Job | current |
-| 7 | Hardening pass (NetworkPolicy, PSA restricted, PDB, seccomp) | pending |
+| 6 | Ingress (ingress-nginx + Gateway API) + cert-manager / cert Job | done |
+| 7 | Hardening pass (NetworkPolicy, PSA restricted, PDB, seccomp) | current |
 | 8 | `phpldapadmin` subchart | pending |
 | 9 | `self-service-password` subchart | pending |
 | 10 | GitOps guides (Argo CD + Flux) + cross-cluster bootstrap doc | pending |
@@ -163,6 +163,59 @@ Default alerts shipped with `prometheusRule.enabled=true`: `OpenLDAPDown`,
 The exporter binds as `cn=adminconfig,cn=config` (config-admin has the
 `cn=Monitor` read ACL seeded by bootstrap); its password is read from the
 same `<release>-openldap-admin` Secret via `LDAP_PASSWORD_FILE`.
+
+## Hardening
+
+Chart defaults are strict; every knob below is on by default when it can be.
+
+- **`runAsNonRoot: true`** at pod level (uid 101, gid 102 for slapd; 65532 for
+  the exporter sidecar). Init containers that need `apk add` run as root but
+  drop every capability except `CHOWN, FOWNER, DAC_OVERRIDE`.
+- **`readOnlyRootFilesystem: true`** on slapd (writes only to
+  `/var/lib/openldap/*` PVC subPaths and `/run/openldap` tmpfs) and on the
+  exporter sidecar.
+- **`capabilities.drop: [ALL]`** everywhere; slapd only adds
+  `NET_BIND_SERVICE` to bind the 389/636 privileged ports.
+- **`seccompProfile: RuntimeDefault`** at pod level.
+- **`automountServiceAccountToken: false`** on the server SA (only sync/tls
+  Jobs mount their token).
+- **PodDisruptionBudget** — `openldap.podDisruptionBudget.enabled: auto`
+  (default) emits a PDB with `minAvailable: replicas - 1` in HA modes and
+  skips it in standalone (a 1-replica PDB would block every node drain).
+- **NetworkPolicy** — `openldap.networkPolicy.enabled: true` emits a
+  default-deny policy scoped to the server pods
+  (`app.kubernetes.io/component: server`) with explicit allows for
+  peer-to-peer syncrepl, sync/backup/tls Jobs, Prometheus scrape (when
+  monitoring is on), external LDAPS peers (when replication has
+  externalPeers), plus user-supplied `allowedFrom` /
+  `extraIngress` / `extraEgress`.
+
+```yaml
+openldap:
+  networkPolicy:
+    enabled: true
+    allowedFrom:
+      - namespaceSelector:
+          matchLabels: { name: apps }
+        podSelector:
+          matchLabels: { role: ldap-client }
+    prometheusNamespace: monitoring
+    externalPeerCIDRs:                # tighten cross-cluster egress
+      - 203.0.113.10/32
+      - 198.51.100.20/32
+```
+
+**PodSecurityAdmission**: label the release namespace with the `restricted`
+profile so the API server rejects any pod that would break the above:
+
+```bash
+kubectl label ns ldap \
+  pod-security.kubernetes.io/enforce=restricted \
+  pod-security.kubernetes.io/enforce-version=latest
+```
+
+The chart does not manage the namespace itself; the label above is safe
+because every pod the chart emits already satisfies `restricted`.
 
 ## TLS
 

@@ -1,0 +1,38 @@
+{{- /*
+Auto-enable in HA modes (mirror / multi-master) unless the user forced the
+knob. `enabled: auto` (default) resolves to `enabled: true` when the mode
+requires more than one replica, so voluntary evictions (node drains) always
+keep a quorum online.
+
+Standalone with replicaCount=1 can't have a meaningful PDB — Kubernetes
+would allow no eviction ever, which blocks node drains entirely. We simply
+skip the PDB in that case.
+*/ -}}
+{{- $auto := eq (toString .Values.podDisruptionBudget.enabled) "auto" -}}
+{{- $wantHA := ne .Values.mode "standalone" -}}
+{{- $enabled := ternary $wantHA (eq (toString .Values.podDisruptionBudget.enabled) "true") $auto -}}
+{{- if $enabled -}}
+{{- $pdb := .Values.podDisruptionBudget -}}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "openldap.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "openldap.labels" . | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "openldap.selectorLabels" . | nindent 6 }}
+  {{- if and $pdb.minAvailable (not $pdb.maxUnavailable) }}
+  minAvailable: {{ $pdb.minAvailable }}
+  {{- else if $pdb.maxUnavailable }}
+  maxUnavailable: {{ $pdb.maxUnavailable }}
+  {{- else }}
+  # Default: keep at least N-1 pods available so single-pod evictions are safe.
+  minAvailable: {{ sub (int .Values.replicaCount) 1 }}
+  {{- end }}
+  {{- with $pdb.unhealthyPodEvictionPolicy }}
+  unhealthyPodEvictionPolicy: {{ . }}
+  {{- end }}
+{{- end }}

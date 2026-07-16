@@ -492,7 +492,9 @@ securityContext:
   runAsUser: 101
   runAsGroup: 102
   allowPrivilegeEscalation: false
-  readOnlyRootFilesystem: false      # PR 7: enable + emptyDir writable mounts
+  # slapd only writes to /var/lib/openldap/*, /etc/openldap/slapd.d (PVC subPaths)
+  # and /run/openldap (emptyDir). Everything else can be read-only.
+  readOnlyRootFilesystem: true
   capabilities:
     drop: [ALL]
 
@@ -512,17 +514,50 @@ affinity: {}
 topologySpreadConstraints: []
 priorityClassName: ""
 
-# PR 7 — PDB shipped alongside NetworkPolicy hardening.
+# =============================================================================
+# PodDisruptionBudget — HA-safe voluntary eviction guard.
+# =============================================================================
 podDisruptionBudget:
-  enabled: false
+  # Auto: create iff mode != standalone. Set to true/false to force.
+  enabled: "auto"
+  # If both are empty, defaults to `minAvailable: <replicas - 1>`. Set only
+  # one — Kubernetes rejects PDBs that set both.
   minAvailable: ""
   maxUnavailable: ""
+  unhealthyPodEvictionPolicy: ""     # "" | AlwaysAllow | IfHealthyBudget (K8s ≥ 1.27)
 
-# PR 7.
+# =============================================================================
+# NetworkPolicy — default-deny + explicit allows scoped to what actually
+# needs to talk to slapd.
+# =============================================================================
 networkPolicy:
   enabled: false
-  # Namespaces / pod selectors allowed to reach the LDAP ports.
+
+  # Additional in-cluster clients. Each entry is a NetworkPolicyPeer
+  # (podSelector / namespaceSelector / ipBlock). Empty = only the
+  # chart-emitted allows (peer-to-peer, sync jobs, exporter scrape) are open.
   allowedFrom: []
+  # Example:
+  #   - namespaceSelector:
+  #       matchLabels: { name: apps }
+  #     podSelector:
+  #       matchLabels: { role: ldap-client }
+  #   - ipBlock:
+  #       cidr: 10.0.0.0/16
+
+  # Namespace where Prometheus lives (for the metrics scrape allow rule).
+  # Empty = same namespace as the release.
+  prometheusNamespace: ""
+
+  # Egress to external LDAPS peers (replication.externalPeers). When empty
+  # and replication is enabled, the chart opens TCP 636 to 0.0.0.0/0
+  # (cross-cluster peers are usually unpredictable). Tighten with CIDRs
+  # here when you know your peers' addresses.
+  externalPeerCIDRs: []
+
+  # Fully custom rules appended after the chart-emitted ones.
+  extraIngress: []
+  extraEgress: []
 
 # =============================================================================
 # Probes
