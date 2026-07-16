@@ -83,6 +83,9 @@ spec:
         {{- toYaml . | nindent 8 }}
       {{- end }}
       initContainers:
+        {{- with .Values.extraInitContainers }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
         - name: bootstrap
           image: "{{ .Values.initImage.repository }}:{{ .Values.initImage.tag }}"
           imagePullPolicy: {{ .Values.initImage.pullPolicy }}
@@ -184,6 +187,10 @@ spec:
               containerPort: {{ .Values.service.ldapsPort }}
               protocol: TCP
             {{- end }}
+          {{- with .Values.extraEnv }}
+          env:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
           securityContext:
             {{- toYaml .Values.securityContext | nindent 12 }}
             capabilities:
@@ -215,6 +222,12 @@ spec:
               mountPath: /etc/openldap/certs
               readOnly: true
             {{- end }}
+            {{- with .Values.extraVolumeMounts }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+        {{- with .Values.sidecars }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
         {{- if .Values.monitoring.enabled }}
         - name: exporter
           image: "{{ .Values.monitoring.exporter.image.repository }}:{{ .Values.monitoring.exporter.image.tag }}"
@@ -293,6 +306,9 @@ spec:
           secret:
             secretName: {{ include "openldap.tlsSecretName" . }}
             defaultMode: 0400
+        {{- end }}
+        {{- with .Values.extraVolumes }}
+        {{- toYaml . | nindent 8 }}
         {{- end }}
   {{- if .Values.persistence.enabled }}
   volumeClaimTemplates:

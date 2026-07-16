@@ -525,6 +525,65 @@ topologySpreadConstraints: []
 priorityClassName: ""
 
 # =============================================================================
+# Extension points — inject arbitrary volumes / mounts / containers / manifests
+# without forking the chart. Applied to the openldap StatefulSet (server pods).
+# =============================================================================
+
+# Extra env vars appended to the slapd container.
+extraEnv: []
+# Example:
+#   - name: EXTRA_ENV
+#     value: something
+#   - name: FROM_SECRET
+#     valueFrom:
+#       secretKeyRef: { name: my-sec, key: k }
+
+# Extra volumes on the pod (siblings of `data`, `bootstrap`, `admin-secret`, ...).
+extraVolumes: []
+# Example:
+#   - name: extra-ldifs
+#     configMap:
+#       name: my-custom-ldifs
+
+# Extra volume mounts on the slapd container.
+extraVolumeMounts: []
+# Example:
+#   - name: extra-ldifs
+#     mountPath: /custom-ldifs
+#     readOnly: true
+
+# Extra initContainers (run BEFORE the chart's `bootstrap` init).
+extraInitContainers: []
+# Example:
+#   - name: wait-for-db
+#     image: busybox:1.36
+#     command: [sh, -c, "until nslookup my-dep; do sleep 2; done"]
+
+# Extra sidecar containers (run alongside slapd + exporter).
+sidecars: []
+# Example:
+#   - name: log-shipper
+#     image: fluent/fluent-bit:3.0
+#     volumeMounts:
+#       - name: data
+#         mountPath: /var/log/slapd
+#         subPath: log
+#         readOnly: true
+
+# Extra manifests emitted verbatim by the chart (each entry is a full
+# Kubernetes object). Useful for shipping ancillary resources (custom
+# ConfigMaps, extra NetworkPolicies, ExternalSecrets, PriorityClasses, …)
+# alongside the release.
+extraDeploy: []
+# Example:
+#   - apiVersion: v1
+#     kind: ConfigMap
+#     metadata:
+#       name: my-extra-cm
+#     data:
+#       key: value
+
+# =============================================================================
 # PodDisruptionBudget — HA-safe voluntary eviction guard.
 # =============================================================================
 podDisruptionBudget:

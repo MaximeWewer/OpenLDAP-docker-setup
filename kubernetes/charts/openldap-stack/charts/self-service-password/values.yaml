@@ -170,6 +170,17 @@ tolerations: []
 affinity: {}
 topologySpreadConstraints: []
 
+# =============================================================================
+# Extension points — inject arbitrary volumes / mounts / containers / manifests
+# without forking the chart.
+# =============================================================================
+extraEnv: []
+extraVolumes: []
+extraVolumeMounts: []
+extraInitContainers: []
+sidecars: []
+extraDeploy: []
+
 livenessProbe:
   httpGet:
     path: /

@@ -47,6 +47,10 @@ spec:
       topologySpreadConstraints:
         {{- toYaml . | nindent 8 }}
       {{- end }}
+      {{- with .Values.extraInitContainers }}
+      initContainers:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       containers:
         - name: ssp
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
@@ -75,6 +79,9 @@ spec:
                   name: {{ .Values.mail.smtpPasswordExistingSecret }}
                   key: {{ .Values.mail.smtpPasswordKey | quote }}
             {{- end }}
+            {{- with .Values.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
           livenessProbe:
             {{- toYaml .Values.livenessProbe | nindent 12 }}
           readinessProbe:
@@ -93,6 +100,12 @@ spec:
               mountPath: /etc/ssl/ldap
               readOnly: true
             {{- end }}
+            {{- with .Values.extraVolumeMounts }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+        {{- with .Values.sidecars }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
       volumes:
         - name: config
           configMap:
@@ -106,4 +119,7 @@ spec:
               - key: ca.crt
                 path: ca.crt
             defaultMode: 0444
+        {{- end }}
+        {{- with .Values.extraVolumes }}
+        {{- toYaml . | nindent 8 }}
         {{- end }}

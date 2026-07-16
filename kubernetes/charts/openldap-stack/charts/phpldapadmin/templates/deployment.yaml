@@ -50,6 +50,10 @@ spec:
       topologySpreadConstraints:
         {{- toYaml . | nindent 8 }}
       {{- end }}
+      {{- with .Values.extraInitContainers }}
+      initContainers:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       containers:
         - name: phpldapadmin
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
@@ -88,6 +92,9 @@ spec:
                   name: {{ include "phpldapadmin.bindSecretName" . }}
                   key: bindpw
             {{- end }}
+            {{- with .Values.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
           livenessProbe:
             {{- toYaml .Values.livenessProbe | nindent 12 }}
           readinessProbe:
@@ -96,7 +103,19 @@ spec:
             {{- toYaml .Values.securityContext | nindent 12 }}
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
-          # No extra volumeMounts — the image needs to write in-place under
-          # /app (Laravel storage/cache) and /run + /tmp (Caddy). Overlaying
-          # those with emptyDir hides the shipped default content and breaks
-          # startup. readOnlyRootFilesystem=false in values reflects this.
+          # No chart-mandated volumeMounts — the image needs to write
+          # in-place under /app (Laravel storage/cache) and /run + /tmp
+          # (Caddy). Overlaying those with emptyDir hides the shipped default
+          # content and breaks startup. readOnlyRootFilesystem=false in values
+          # reflects this. Use extraVolumeMounts to add your own.
+          {{- with .Values.extraVolumeMounts }}
+          volumeMounts:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+        {{- with .Values.sidecars }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- with .Values.extraVolumes }}
+      volumes:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
