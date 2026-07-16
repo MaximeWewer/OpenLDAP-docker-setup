@@ -87,11 +87,25 @@ data:
       REPLICATOR_PW=$(cat /replicator/replicator-password)
       REPLICATOR_HASH=$(slappasswd -s "$REPLICATOR_PW")
 
-      SERVER_ID=$((${SERVER_ID_BASE:-1} + ORDINAL))
-      SERVER_ID_LINE="olcServerID: ${SERVER_ID}"
-      MIRRORMODE_LINE="olcMirrorMode: TRUE"
+      # Read-only consumer pods use a distinct serverIdBase and never accept
+      # writes — olcReadOnly: TRUE substitutes olcMirrorMode.
+      if [ "${NODE_ROLE:-writable}" = "readonly" ]; then
+        SERVER_ID=$((${READONLY_SERVER_ID_BASE:-100} + ORDINAL))
+        SERVER_ID_LINE="olcServerID: ${SERVER_ID}"
+        if [ "${READONLY_ENFORCE:-true}" = "true" ]; then
+          MIRRORMODE_LINE="olcReadOnly: TRUE"
+        else
+          MIRRORMODE_LINE=""
+        fi
+      else
+        SERVER_ID=$((${SERVER_ID_BASE:-1} + ORDINAL))
+        SERVER_ID_LINE="olcServerID: ${SERVER_ID}"
+        MIRRORMODE_LINE="olcMirrorMode: TRUE"
+      fi
 
-      # Build peer URI list: every in-cluster StatefulSet pod + external peers.
+      # Build peer URI list.
+      #   writable: every in-cluster writable pod + external peers (mesh)
+      #   readonly: only writable pods (RO does not consume from RO)
       # Peer FQDN follows the StatefulSet + headless service convention:
       #   <sts-name>-<i>.<headless>.<ns>.svc.cluster.local
       PEERS=""
@@ -100,7 +114,7 @@ data:
         PEERS="${PEERS} ldap://${SVC_NAME}-${i}.${HEADLESS_SVC}.${NAMESPACE}.svc.cluster.local:${REPLICA_LDAP_PORT}"
         i=$((i + 1))
       done
-      if [ -n "${EXTERNAL_PEERS:-}" ]; then
+      if [ -n "${EXTERNAL_PEERS:-}" ] && [ "${NODE_ROLE:-writable}" = "writable" ]; then
         OLDIFS=$IFS
         IFS=,
         for p in $EXTERNAL_PEERS; do
@@ -194,10 +208,14 @@ data:
 
     # Base data: standalone always, HA only on ordinal 0 (default) so peers
     # sync from ordinal 0 instead of concurrently seeding split-brain state.
+    # Read-only pods NEVER seed — they only pull from writable peers.
     SHOULD_SEED_DATA=1
     if [ "${MODE:-standalone}" != "standalone" ] \
        && [ "${SEED_ORDINAL_ZERO_ONLY:-true}" = "true" ] \
        && [ "${ORDINAL}" != "0" ]; then
+      SHOULD_SEED_DATA=0
+    fi
+    if [ "${NODE_ROLE:-writable}" = "readonly" ]; then
       SHOULD_SEED_DATA=0
     fi
 

@@ -309,6 +309,51 @@ replication:
   seedOnOrdinalZeroOnly: true
 
 # =============================================================================
+# Read-only replicas — separate StatefulSet of syncrepl consumers.
+# Point read-heavy clients at the `<release>-openldap-readonly` Service
+# to spread load without touching the write pool. Requires mode != standalone
+# (RO consumers pull from writable peers).
+# =============================================================================
+readOnlyReplicas:
+  # 0 disables the RO pool entirely. When > 0, an additional StatefulSet
+  # + Services are emitted alongside the writable pool.
+  count: 0
+
+  # serverIdBase for RO pods. MUST be distinct from replication.serverIdBase
+  # to avoid olcServerID collisions in cn=config. Default reserves the decade
+  # 100+ for RO in a single cluster; bump when cross-cluster (writable in
+  # dc1: 1-9, RO in dc1: 100-109, writable in dc2: 10-19, RO in dc2: 110-119).
+  serverIdBase: 100
+
+  # slapd rejects client writes on RO pods (olcReadOnly: TRUE). Syncrepl
+  # still updates the DB internally — this only blocks external writes.
+  # Set to false if you want the RO pool to be promoteable to writable in
+  # a failover scenario (leaves the door open for a client-side write that
+  # would then be overwritten by syncrepl).
+  enforceReadOnly: true
+
+  # Falls back to openldap.resources if empty.
+  resources: {}
+
+  # Falls back to openldap.persistence.size / storageClass if empty.
+  persistence:
+    size: ""
+    storageClass: ""
+
+  # Standard placement knobs (independent from the writable pool).
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  topologySpreadConstraints: []
+  podLabels: {}
+  podAnnotations: {}
+  priorityClassName: ""
+
+  service:
+    type: ClusterIP
+    annotations: {}
+
+# =============================================================================
 # openldap-cli — used by all sync Jobs (ppolicy, users, groups) as Helm
 # post-install / post-upgrade hooks. CLI + kubectl are downloaded on the fly
 # from GitHub / dl.k8s.io so no custom image build is required.

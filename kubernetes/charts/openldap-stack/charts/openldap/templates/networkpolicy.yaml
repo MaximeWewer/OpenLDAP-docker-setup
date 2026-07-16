@@ -25,13 +25,20 @@ spec:
   # Ingress
   # ---------------------------------------------------------------------------
   ingress:
-    # 1) Peer-to-peer syncrepl within the StatefulSet (HA only).
+    # 1) Peer-to-peer syncrepl within the StatefulSet (HA only) + read-only
+    #    consumers pulling from this writable pool.
     {{- if $ha }}
     - from:
         - podSelector:
             matchLabels:
               {{- include "openldap.selectorLabels" . | nindent 14 }}
               app.kubernetes.io/component: server
+        {{- if gt (int .Values.readOnlyReplicas.count) 0 }}
+        - podSelector:
+            matchLabels:
+              {{- include "openldap.selectorLabels" . | nindent 14 }}
+              app.kubernetes.io/component: readonly
+        {{- end }}
       ports:
         - protocol: TCP
           port: {{ $ldapPort }}
@@ -140,4 +147,88 @@ spec:
     {{- with .Values.networkPolicy.extraEgress }}
     {{- toYaml . | nindent 4 }}
     {{- end }}
+{{- if gt (int .Values.readOnlyReplicas.count) 0 }}
+---
+# Second NetworkPolicy scoped to the read-only pool. Same allowlist shape
+# as the writable one, minus peer-to-peer (RO pods don't provide) and
+# minus external-peer egress (RO consumes only from in-cluster writables).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "openldap.readonlyFullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "openldap.labels" . | nindent 4 }}
+    app.kubernetes.io/component: readonly
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "openldap.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: readonly
+  policyTypes: [Ingress, Egress]
+  ingress:
+    # Sync/backup/tls Jobs occasionally talk to the RO Service too (e.g.
+    # for search workloads); allow them in.
+    - from:
+        - podSelector:
+            matchExpressions:
+              - key: app.kubernetes.io/component
+                operator: In
+                values: [sync, backup, accesslog-purge, tls]
+      ports:
+        - protocol: TCP
+          port: {{ $ldapPort }}
+        {{- if .Values.tls.enabled }}
+        - protocol: TCP
+          port: {{ $ldapsPort }}
+        {{- end }}
+    {{- if .Values.monitoring.enabled }}
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ $promNs }}
+      ports:
+        - protocol: TCP
+          port: {{ $exporterPort }}
+    {{- end }}
+    {{- with .Values.networkPolicy.allowedFrom }}
+    - from:
+        {{- toYaml . | nindent 8 }}
+      ports:
+        - protocol: TCP
+          port: {{ $ldapPort }}
+        {{- if $.Values.tls.enabled }}
+        - protocol: TCP
+          port: {{ $ldapsPort }}
+        {{- end }}
+    {{- end }}
+    {{- with .Values.networkPolicy.extraIngress }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+  egress:
+    - to:
+        - namespaceSelector: {}
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - { protocol: UDP, port: 53 }
+        - { protocol: TCP, port: 53 }
+    # Pull from writable peers via syncrepl.
+    - to:
+        - podSelector:
+            matchLabels:
+              {{- include "openldap.selectorLabels" . | nindent 14 }}
+              app.kubernetes.io/component: server
+      ports:
+        - protocol: TCP
+          port: {{ $ldapPort }}
+        {{- if .Values.tls.enabled }}
+        - protocol: TCP
+          port: {{ $ldapsPort }}
+        {{- end }}
+    {{- with .Values.networkPolicy.extraEgress }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+{{- end }}
 {{- end }}

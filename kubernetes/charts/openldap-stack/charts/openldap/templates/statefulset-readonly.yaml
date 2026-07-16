@@ -1,0 +1,315 @@
+{{- /*
+Read-only replica pool — syncrepl consumers of the writable StatefulSet.
+Reuses the same bootstrap ConfigMap and Secrets; the NODE_ROLE=readonly
+env var flips the bootstrap script into consumer-only mode
+(olcReadOnly: TRUE, distinct serverIdBase, no base-data seed, syncrepl
+providers = writable peers only).
+
+Requires openldap.mode != standalone — RO pool only makes sense when
+there is a write pool with delta-syncrepl to consume from.
+
+Keep in sync with statefulset.yaml — the pod spec is intentionally
+close so downstream users can `kubectl diff` the two easily.
+*/ -}}
+{{- if gt (int .Values.readOnlyReplicas.count) 0 -}}
+{{- $fullName := include "openldap.fullname" . -}}
+{{- $roName := include "openldap.readonlyFullname" . -}}
+{{- if eq .Values.mode "standalone" -}}
+{{- fail "openldap.readOnlyReplicas.count > 0 requires openldap.mode != standalone" -}}
+{{- end -}}
+{{- $replicas := int .Values.replicaCount -}}
+{{- $roReplicas := int .Values.readOnlyReplicas.count -}}
+{{- $roResources := ternary .Values.readOnlyReplicas.resources .Values.resources (empty .Values.readOnlyReplicas.resources) -}}
+{{- $roPersistenceSize := default .Values.persistence.size .Values.readOnlyReplicas.persistence.size -}}
+{{- $roStorageClass := default .Values.persistence.storageClass .Values.readOnlyReplicas.persistence.storageClass -}}
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ $roName }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "openldap.labels" . | nindent 4 }}
+    app.kubernetes.io/component: readonly
+spec:
+  serviceName: {{ include "openldap.readonlyHeadlessServiceName" . }}
+  replicas: {{ $roReplicas }}
+  podManagementPolicy: OrderedReady
+  updateStrategy:
+    type: RollingUpdate
+  selector:
+    matchLabels:
+      {{- include "openldap.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: readonly
+  template:
+    metadata:
+      labels:
+        {{- include "openldap.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: readonly
+        {{- with .Values.readOnlyReplicas.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      annotations:
+        checksum/bootstrap: {{ include (print $.Template.BasePath "/configmap-bootstrap.yaml") . | sha256sum }}
+        {{- if not .Values.admin.existingSecret }}
+        checksum/admin-secret: {{ include (print $.Template.BasePath "/secret-admin.yaml") . | sha256sum }}
+        {{- end }}
+        {{- with .Values.readOnlyReplicas.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      serviceAccountName: {{ include "openldap.serviceAccountName" . }}
+      automountServiceAccountToken: {{ .Values.serviceAccount.automountServiceAccountToken }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      {{- with .Values.readOnlyReplicas.priorityClassName }}
+      priorityClassName: {{ . }}
+      {{- end }}
+      {{- with .Values.readOnlyReplicas.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.readOnlyReplicas.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.readOnlyReplicas.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.readOnlyReplicas.topologySpreadConstraints }}
+      topologySpreadConstraints:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      initContainers:
+        - name: bootstrap
+          image: "{{ .Values.initImage.repository }}:{{ .Values.initImage.tag }}"
+          imagePullPolicy: {{ .Values.initImage.pullPolicy }}
+          command: ["/bin/sh", "/bootstrap/bootstrap.sh"]
+          env:
+            - name: APK_PACKAGES
+              value: {{ .Values.initImage.packages | quote }}
+            - name: OWNER_UID
+              value: {{ .Values.securityContext.runAsUser | quote }}
+            - name: OWNER_GID
+              value: {{ .Values.securityContext.runAsGroup | quote }}
+            - name: MODE
+              value: {{ .Values.mode | quote }}
+            - name: NODE_ROLE
+              value: readonly
+            - name: READONLY_SERVER_ID_BASE
+              value: {{ .Values.readOnlyReplicas.serverIdBase | quote }}
+            - name: READONLY_ENFORCE
+              value: {{ .Values.readOnlyReplicas.enforceReadOnly | quote }}
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: SERVER_ID_BASE
+              value: {{ .Values.replication.serverIdBase | quote }}
+            - name: REPLICA_COUNT
+              value: {{ $replicas | quote }}
+            - name: HEADLESS_SVC
+              value: {{ include "openldap.headlessServiceName" . }}
+            - name: SVC_NAME
+              value: {{ $fullName | quote }}
+            - name: NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: REPLICATOR_DN
+              value: "{{ .Values.replication.replicator.dn }},{{ .Values.directory.suffix }}"
+            - name: REPLICA_LDAP_PORT
+              value: {{ .Values.service.ldapPort | quote }}
+            - name: SEED_ORDINAL_ZERO_ONLY
+              value: {{ .Values.replication.seedOnOrdinalZeroOnly | quote }}
+            - name: SYNCREPL_RETRY
+              value: {{ .Values.replication.retry | quote }}
+            - name: EXTERNAL_PEERS
+              value: ""    # RO pods pull from writable peers only
+            - name: SUFFIX
+              value: {{ .Values.directory.suffix | quote }}
+            - name: ADMIN_DN
+              value: {{ .Values.admin.bindDN | quote }}
+          securityContext:
+            runAsUser: 0
+            runAsGroup: 0
+            runAsNonRoot: false
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+              add: [CHOWN, FOWNER, DAC_OVERRIDE]
+          volumeMounts:
+            - name: bootstrap
+              mountPath: /bootstrap
+              readOnly: true
+            - name: admin-secret
+              mountPath: /secrets
+              readOnly: true
+            - name: replicator-secret
+              mountPath: /replicator
+              readOnly: true
+            {{- if or .Values.customSchemas.files .Values.customSchemas.existingConfigMap }}
+            - name: custom-schemas
+              mountPath: /custom-schemas
+              readOnly: true
+            {{- end }}
+            - name: data
+              mountPath: /etc/openldap/slapd.d
+              subPath: slapd.d
+            - name: data
+              mountPath: /var/lib/openldap/openldap-data
+              subPath: openldap-data
+            - name: data
+              mountPath: /var/lib/openldap/accesslog-data
+              subPath: accesslog-data
+            - name: run
+              mountPath: /run/openldap
+          resources:
+            {{- toYaml $roResources | nindent 12 }}
+      containers:
+        - name: openldap
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["slapd"]
+          args:
+            - "-d"
+            - "0"
+            - "-h"
+            - "ldap:///{{ if .Values.tls.enabled }} ldaps:///{{ end }}"
+            - "-F"
+            - "/etc/openldap/slapd.d"
+          ports:
+            - name: ldap
+              containerPort: {{ .Values.service.ldapPort }}
+              protocol: TCP
+            {{- if .Values.tls.enabled }}
+            - name: ldaps
+              containerPort: {{ .Values.service.ldapsPort }}
+              protocol: TCP
+            {{- end }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+            capabilities:
+              drop: [ALL]
+              add: [NET_BIND_SERVICE]
+          livenessProbe:
+            {{- toYaml .Values.livenessProbe | nindent 12 }}
+          readinessProbe:
+            {{- toYaml .Values.readinessProbe | nindent 12 }}
+          startupProbe:
+            {{- toYaml .Values.startupProbe | nindent 12 }}
+          resources:
+            {{- toYaml $roResources | nindent 12 }}
+          volumeMounts:
+            - name: data
+              mountPath: /etc/openldap/slapd.d
+              subPath: slapd.d
+            - name: data
+              mountPath: /var/lib/openldap/openldap-data
+              subPath: openldap-data
+            - name: data
+              mountPath: /var/lib/openldap/accesslog-data
+              subPath: accesslog-data
+            - name: run
+              mountPath: /run/openldap
+            {{- if .Values.tls.enabled }}
+            - name: tls
+              mountPath: /etc/openldap/certs
+              readOnly: true
+            {{- end }}
+        {{- if .Values.monitoring.enabled }}
+        - name: exporter
+          image: "{{ .Values.monitoring.exporter.image.repository }}:{{ .Values.monitoring.exporter.image.tag }}"
+          imagePullPolicy: {{ .Values.monitoring.exporter.image.pullPolicy }}
+          env:
+            - name: LDAP_URL
+              value: "ldap://127.0.0.1:{{ .Values.service.ldapPort }}"
+            - name: LDAP_USERNAME
+              value: {{ .Values.configAdmin.bindDN | quote }}
+            - name: LDAP_PASSWORD_FILE
+              value: /secrets/config-admin-password
+            - name: LDAP_SERVER_NAME
+              value: {{ $roName | quote }}
+            - name: LISTEN_ADDRESS
+              value: ":{{ .Values.monitoring.exporter.port }}"
+            {{- with .Values.monitoring.exporter.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          ports:
+            - name: metrics
+              containerPort: {{ .Values.monitoring.exporter.port }}
+              protocol: TCP
+          livenessProbe:
+            httpGet: { path: /health, port: metrics }
+            initialDelaySeconds: 30
+            periodSeconds: 30
+          readinessProbe:
+            httpGet: { path: /health, port: metrics }
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          securityContext:
+            runAsUser: 65532
+            runAsGroup: 65532
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+            capabilities: { drop: [ALL] }
+            readOnlyRootFilesystem: true
+          resources:
+            {{- toYaml .Values.monitoring.exporter.resources | nindent 12 }}
+          volumeMounts:
+            - name: admin-secret
+              mountPath: /secrets
+              readOnly: true
+        {{- end }}
+      volumes:
+        - name: bootstrap
+          configMap:
+            name: {{ $fullName }}-bootstrap
+            defaultMode: 0555
+        - name: admin-secret
+          secret:
+            secretName: {{ include "openldap.adminSecretName" . }}
+            defaultMode: 0400
+        - name: replicator-secret
+          secret:
+            secretName: {{ include "openldap.replicatorSecretName" . }}
+            defaultMode: 0400
+        {{- if or .Values.customSchemas.files .Values.customSchemas.existingConfigMap }}
+        - name: custom-schemas
+          projected:
+            sources:
+              {{- if .Values.customSchemas.files }}
+              - configMap: { name: {{ $fullName }}-custom-schemas }
+              {{- end }}
+              {{- if .Values.customSchemas.existingConfigMap }}
+              - configMap: { name: {{ .Values.customSchemas.existingConfigMap }} }
+              {{- end }}
+        {{- end }}
+        - name: run
+          emptyDir:
+            medium: Memory
+            sizeLimit: 16Mi
+        {{- if .Values.tls.enabled }}
+        - name: tls
+          secret:
+            secretName: {{ include "openldap.tlsSecretName" . }}
+            defaultMode: 0400
+        {{- end }}
+  {{- if .Values.persistence.enabled }}
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+        labels:
+          {{- include "openldap.labels" . | nindent 10 }}
+          app.kubernetes.io/component: readonly
+      spec:
+        accessModes:
+          {{- toYaml .Values.persistence.accessModes | nindent 10 }}
+        {{- if $roStorageClass }}
+        storageClassName: {{ $roStorageClass | quote }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ $roPersistenceSize }}
+  {{- end }}
+{{- end }}

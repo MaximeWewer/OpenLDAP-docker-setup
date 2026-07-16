@@ -98,6 +98,17 @@ Headless service DNS name (for peer discovery in HA modes).
 {{- end -}}
 
 {{/*
+Read-only StatefulSet + Service names.
+*/}}
+{{- define "openldap.readonlyFullname" -}}
+{{- printf "%s-readonly" (include "openldap.fullname" .) | trunc 63 | trimSuffix "-" -}}
+{{- end -}}
+
+{{- define "openldap.readonlyHeadlessServiceName" -}}
+{{- printf "%s-readonly-headless" (include "openldap.fullname" .) | trunc 63 | trimSuffix "-" -}}
+{{- end -}}
+
+{{/*
 Replicator Secret name — either an override (existingSecret) or the chart-
 managed `<fullname>-replicator` Secret with a persisted random password.
 */}}
