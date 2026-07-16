@@ -98,6 +98,60 @@ Headless service DNS name (for peer discovery in HA modes).
 {{- end -}}
 
 {{/*
+Render pod affinity — user-provided `.Values.affinity` wins, otherwise
+build from the `podAntiAffinityPreset` + `nodeAffinityPreset` shorthands.
+Call as:
+    {{ include "openldap.affinity" (dict "context" . "component" "server") }}
+*/}}
+{{- define "openldap.affinity" -}}
+{{- $ctx := .context -}}
+{{- if $ctx.Values.affinity -}}
+{{- toYaml $ctx.Values.affinity -}}
+{{- else -}}
+{{- $out := dict -}}
+
+{{- /* Pod anti-affinity by hostname (spread replicas across nodes). */ -}}
+{{- with $ctx.Values.podAntiAffinityPreset -}}
+{{- $rule := dict "labelSelector" (dict "matchLabels" (dict
+    "app.kubernetes.io/name" (include "openldap.name" $ctx)
+    "app.kubernetes.io/instance" $ctx.Release.Name
+    "app.kubernetes.io/component" $.component
+  )) "topologyKey" "kubernetes.io/hostname" -}}
+{{- if eq . "hard" -}}
+{{- $_ := set $out "podAntiAffinity" (dict "requiredDuringSchedulingIgnoredDuringExecution" (list $rule)) -}}
+{{- else if eq . "soft" -}}
+{{- $_ := set $out "podAntiAffinity" (dict "preferredDuringSchedulingIgnoredDuringExecution" (list (dict "weight" 100 "podAffinityTerm" $rule))) -}}
+{{- end -}}
+{{- end -}}
+
+{{- /* Node affinity — match a label key + accepted values. */ -}}
+{{- $na := $ctx.Values.nodeAffinityPreset -}}
+{{- if and $na.type $na.key $na.values -}}
+{{- $term := dict "matchExpressions" (list (dict "key" $na.key "operator" "In" "values" $na.values)) -}}
+{{- if eq $na.type "hard" -}}
+{{- $_ := set $out "nodeAffinity" (dict "requiredDuringSchedulingIgnoredDuringExecution" (dict "nodeSelectorTerms" (list $term))) -}}
+{{- else if eq $na.type "soft" -}}
+{{- $_ := set $out "nodeAffinity" (dict "preferredDuringSchedulingIgnoredDuringExecution" (list (dict "weight" 100 "preference" $term))) -}}
+{{- end -}}
+{{- end -}}
+
+{{- toYaml $out -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
+Bootstrap ConfigMap name — either the user's override or the chart-managed
+`<fullname>-bootstrap`.
+*/}}
+{{- define "openldap.bootstrapConfigMapName" -}}
+{{- if .Values.existingBootstrapConfigMap -}}
+{{- .Values.existingBootstrapConfigMap -}}
+{{- else -}}
+{{- printf "%s-bootstrap" (include "openldap.fullname" .) -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
 Read-only StatefulSet + Service names.
 */}}
 {{- define "openldap.readonlyFullname" -}}

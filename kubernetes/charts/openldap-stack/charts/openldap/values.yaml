@@ -8,6 +8,14 @@ image:
   tag: "2.6.13"
   pullPolicy: IfNotPresent
 
+# Override slapd's command / args entirely (escape hatch for exotic setups —
+# e.g. running under strace, forcing a specific -d level, chrooting).
+# When empty, the chart uses:
+#   command: [slapd]
+#   args:    ["-d", "0", "-h", "ldap:/// [ldaps:///]", "-F", "/etc/openldap/slapd.d"]
+command: []
+args: []
+
 # Bootstrap init image — needs a shell + slappasswd + slapadd.
 # Alpine's openldap package ships all required binaries and schemas; the
 # initContainer installs them at runtime so no custom image build is needed.
@@ -95,6 +103,17 @@ customSchemas:
   # Existing ConfigMap that already carries schema LDIF files. Keys become
   # filenames under /custom-schemas/. Loaded IN ADDITION to `files`.
   existingConfigMap: ""
+
+# =============================================================================
+# Bootstrap ConfigMap override (advanced escape hatch)
+# =============================================================================
+# Replace the chart's chart-generated bootstrap ConfigMap with your own.
+# The referenced ConfigMap MUST carry exactly the same keys as the chart
+# would emit — `bootstrap.sh`, `slapd-config.ldif`, `base-data.ldif` — so
+# the initContainer command-line stays valid. Only use this when you need
+# something the values-driven templates cannot express (e.g. shipping a
+# custom bootstrap.sh with extra logic).
+existingBootstrapConfigMap: ""
 
 customLdifs:
   # Inline data LDIF files. Loaded after the base tree, in alphabetical
@@ -211,6 +230,26 @@ service:
   ldapsPort: 636
   annotations: {}
 
+  # Enable/disable each port on the client-facing Service without touching
+  # slapd's `-h` args (the pod still binds both). Useful to hide plaintext
+  # LDAP from clients while keeping StartTLS on 389 available internally.
+  enableLdapPort: true
+  enableLdapsPort: true             # only takes effect when tls.enabled=true
+
+  # Dual-stack / traffic-routing knobs — passed through verbatim when set.
+  # ipFamilyPolicy: SingleStack | PreferDualStack | RequireDualStack
+  ipFamilyPolicy: ""
+  ipFamilies: []                    # e.g. [IPv4, IPv6]
+  # externalTrafficPolicy: Cluster | Local (LoadBalancer / NodePort only)
+  externalTrafficPolicy: ""
+  # LoadBalancer specifics
+  loadBalancerIP: ""
+  loadBalancerSourceRanges: []
+  # NodePort assignments (only when type=NodePort)
+  ldapNodePort: ""
+  ldapsNodePort: ""
+  clusterIP: ""                     # e.g. None for headless, or a fixed IP
+
 # Headless service backing the StatefulSet (peer discovery for HA).
 headlessService:
   annotations: {}
@@ -288,6 +327,23 @@ replication:
 
   # Delta-syncrepl retry policy: <interval> <retries> <interval2> <retries2>.
   retry: "5 60 60 +"
+
+  # StartTLS enforcement on each syncrepl connection to a peer.
+  #   ""         no StartTLS (plaintext or ldaps:// URL)
+  #   yes        attempt StartTLS, continue on failure
+  #   critical   REQUIRE StartTLS, abort session on failure
+  # Applies only when peer URLs are `ldap://` — `ldaps://` peers are already
+  # encrypted end-to-end.
+  startTLS: ""
+
+  # Certificate validation policy for TLS handshakes (applies to StartTLS
+  # AND ldaps:// peers). Passed as `tls_reqcert=<value>` on each olcSyncRepl.
+  #   ""      omit — inherit slapd's global olcTLSVerifyClient
+  #   never   don't validate (dev only)
+  #   allow   validate if presented, ignore failure
+  #   try     validate if presented, abort on failure
+  #   demand  require + validate, abort on failure  (default when TLS is on)
+  tlsReqcert: ""
 
   # syncprov overlay tuning on the main mdb + accesslog mdb.
   syncprov:
@@ -643,9 +699,26 @@ podAnnotations: {}
 podLabels: {}
 nodeSelector: {}
 tolerations: []
+# Full pod affinity — takes precedence over the presets below when set.
 affinity: {}
 topologySpreadConstraints: []
 priorityClassName: ""
+
+# Convenience presets for common HA anti-affinity patterns. Only applied
+# when `affinity` above is empty. `soft` = preferredDuringScheduling
+# (best-effort), `hard` = requiredDuringScheduling (blocks scheduling if
+# the topology has fewer nodes than replicas).
+#
+# podAntiAffinityPreset: "" | soft | hard
+podAntiAffinityPreset: ""
+# nodeAffinityPreset — pin pods to nodes matching a label key/values.
+#   type: "" | soft | hard
+#   key:  node label to select on
+#   values: [] list of accepted values
+nodeAffinityPreset:
+  type: ""
+  key: ""
+  values: []
 
 # =============================================================================
 # Extension points — inject arbitrary volumes / mounts / containers / manifests

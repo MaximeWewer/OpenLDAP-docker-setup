@@ -15,18 +15,47 @@ metadata:
   {{- end }}
 spec:
   type: {{ .Values.service.type }}
+  {{- with .Values.service.clusterIP }}
+  clusterIP: {{ . }}
+  {{- end }}
+  {{- with .Values.service.ipFamilyPolicy }}
+  ipFamilyPolicy: {{ . }}
+  {{- end }}
+  {{- with .Values.service.ipFamilies }}
+  ipFamilies:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  {{- with .Values.service.externalTrafficPolicy }}
+  externalTrafficPolicy: {{ . }}
+  {{- end }}
+  {{- with .Values.service.loadBalancerIP }}
+  loadBalancerIP: {{ . }}
+  {{- end }}
+  {{- with .Values.service.loadBalancerSourceRanges }}
+  loadBalancerSourceRanges:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
   selector:
     {{- include "openldap.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: server
   ports:
+    {{- if .Values.service.enableLdapPort }}
     - name: ldap
       port: {{ .Values.service.ldapPort }}
       targetPort: ldap
       protocol: TCP
-    {{- if .Values.tls.enabled }}
+      {{- with .Values.service.ldapNodePort }}
+      nodePort: {{ . }}
+      {{- end }}
+    {{- end }}
+    {{- if and .Values.tls.enabled .Values.service.enableLdapsPort }}
     - name: ldaps
       port: {{ .Values.service.ldapsPort }}
       targetPort: ldaps
       protocol: TCP
+      {{- with .Values.service.ldapsNodePort }}
+      nodePort: {{ . }}
+      {{- end }}
     {{- end }}
     {{- if .Values.monitoring.enabled }}
     - name: metrics

@@ -130,6 +130,10 @@ spec:
               value: {{ .Values.directory.suffix | quote }}
             - name: ADMIN_DN
               value: {{ .Values.admin.bindDN | quote }}
+            - name: STARTTLS
+              value: {{ .Values.replication.startTLS | quote }}
+            - name: TLS_REQCERT
+              value: {{ .Values.replication.tlsReqcert | quote }}
           securityContext:
             runAsUser: 0
             runAsGroup: 0
@@ -170,14 +174,23 @@ spec:
         - name: openldap
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
-          command: ["slapd"]
+          command:
+            {{- if .Values.command }}
+            {{- toYaml .Values.command | nindent 12 }}
+            {{- else }}
+            - slapd
+            {{- end }}
           args:
+            {{- if .Values.args }}
+            {{- toYaml .Values.args | nindent 12 }}
+            {{- else }}
             - "-d"
             - "0"
             - "-h"
             - "ldap:///{{ if .Values.tls.enabled }} ldaps:///{{ end }}"
             - "-F"
             - "/etc/openldap/slapd.d"
+            {{- end }}
           ports:
             - name: ldap
               containerPort: {{ .Values.service.ldapPort }}
@@ -264,7 +277,7 @@ spec:
       volumes:
         - name: bootstrap
           configMap:
-            name: {{ $fullName }}-bootstrap
+            name: {{ include "openldap.bootstrapConfigMapName" . }}
             defaultMode: 0555
         - name: admin-secret
           secret:

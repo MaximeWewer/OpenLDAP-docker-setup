@@ -18,6 +18,9 @@ Bootstrap ConfigMap — holds:
                             account. Loaded on ordinal 0 only when HA and
                             replication.seedOnOrdinalZeroOnly=true (default).
 */ -}}
+{{- if .Values.existingBootstrapConfigMap -}}
+# Chart-managed bootstrap ConfigMap skipped — using existingBootstrapConfigMap: {{ .Values.existingBootstrapConfigMap }}
+{{- else -}}
 {{- $ha := ne .Values.mode "standalone" -}}
 apiVersion: v1
 kind: ConfigMap
@@ -124,17 +127,26 @@ data:
       fi
 
       # Emit one olcSyncRepl entry per peer. rid must be unique per replica.
+      # StartTLS + tls_reqcert flags are appended per-URI when set.
       SYNCREPL_FILE=$(mktemp)
       RID=1
       for uri in $PEERS; do
         RID_PADDED=$(printf '%03d' "$RID")
+        EXTRA_TLS=""
+        # StartTLS only relevant for plaintext ldap:// URIs.
+        case "$uri" in
+          ldap://*)
+            [ -n "${STARTTLS:-}" ] && EXTRA_TLS="${EXTRA_TLS} starttls=${STARTTLS}"
+            ;;
+        esac
+        [ -n "${TLS_REQCERT:-}" ] && EXTRA_TLS="${EXTRA_TLS} tls_reqcert=${TLS_REQCERT}"
         cat >> "$SYNCREPL_FILE" <<EOF
     olcSyncRepl: rid=${RID_PADDED} provider=${uri}
       bindmethod=simple binddn="${REPLICATOR_DN}"
       credentials="${REPLICATOR_PW}"
       searchbase="${SUFFIX}"
       type=refreshAndPersist retry="${SYNCREPL_RETRY}"
-      timeout=1 schemachecking=on
+      timeout=1 schemachecking=on${EXTRA_TLS}
       logbase="cn=accesslog"
       logfilter="(&(objectClass=auditWriteObject)(reqResult=0))"
       syncdata=accesslog
@@ -451,3 +463,4 @@ data:
     userPassword: __REPLICATOR_PW_HASH__
     description: Delta-syncrepl bind account for peer-to-peer replication.
     {{- end }}
+{{- end }}

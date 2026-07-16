@@ -74,9 +74,10 @@ spec:
       tolerations:
         {{- toYaml . | nindent 8 }}
       {{- end }}
-      {{- with .Values.affinity }}
+      {{- $aff := include "openldap.affinity" (dict "context" . "component" "server") | trim }}
+      {{- if $aff }}
       affinity:
-        {{- toYaml . | nindent 8 }}
+        {{- $aff | nindent 8 }}
       {{- end }}
       {{- with .Values.topologySpreadConstraints }}
       topologySpreadConstraints:
@@ -130,6 +131,10 @@ spec:
               value: {{ .Values.admin.bindDN | quote }}
             - name: SVC_NAME
               value: {{ $fullName | quote }}
+            - name: STARTTLS
+              value: {{ .Values.replication.startTLS | quote }}
+            - name: TLS_REQCERT
+              value: {{ .Values.replication.tlsReqcert | quote }}
             {{- end }}
           # Runs as root: apk needs privileges + files are chowned to
           # <OWNER_UID>:<OWNER_GID> at the end so the main container reads them.
@@ -180,14 +185,23 @@ spec:
         - name: openldap
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
-          command: ["slapd"]
+          command:
+            {{- if .Values.command }}
+            {{- toYaml .Values.command | nindent 12 }}
+            {{- else }}
+            - slapd
+            {{- end }}
           args:
+            {{- if .Values.args }}
+            {{- toYaml .Values.args | nindent 12 }}
+            {{- else }}
             - "-d"
             - "0"
             - "-h"
             - "ldap:///{{ if .Values.tls.enabled }} ldaps:///{{ end }}"
             - "-F"
             - "/etc/openldap/slapd.d"
+            {{- end }}
           ports:
             - name: ldap
               containerPort: {{ .Values.service.ldapPort }}
@@ -295,7 +309,7 @@ spec:
       volumes:
         - name: bootstrap
           configMap:
-            name: {{ $fullName }}-bootstrap
+            name: {{ include "openldap.bootstrapConfigMapName" . }}
             defaultMode: 0555
         - name: admin-secret
           secret:
