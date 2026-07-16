@@ -1,22 +1,22 @@
 .vagrant/
 
 # Persistent OpenLDAP data (per-mode)
-standalone/data/
-ha-active-active/data/
-ha-active-passive/data/
+docker/standalone/data/
+docker/ha-active-active/data/
+docker/ha-active-passive/data/
 
 # Per-mode env + rendered HAProxy config
-ha-active-active/.env
-ha-active-passive/.env
-ha-active-active/haproxy/haproxy.cfg
-ha-active-passive/haproxy/haproxy.cfg
+docker/ha-active-active/.env
+docker/ha-active-passive/.env
+docker/ha-active-active/haproxy/haproxy.cfg
+docker/ha-active-passive/haproxy/haproxy.cfg
 
 # TLS material (generated locally per mode)
-*/certs/*.crt
-*/certs/*.key
-*/certs/*.csr
-*/certs/*.srl
+docker/*/certs/*.crt
+docker/*/certs/*.key
+docker/*/certs/*.csr
+docker/*/certs/*.srl
 
 # Backup dumps (generated per mode)
-*/backup/*.tar.gz
-*/backup/*.tgz
+docker/*/backup/*.tar.gz
+docker/*/backup/*.tgz
