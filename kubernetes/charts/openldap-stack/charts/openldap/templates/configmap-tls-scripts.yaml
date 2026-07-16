@@ -1,0 +1,15 @@
+{{- if and .Values.tls.enabled (eq .Values.tls.backend "job") -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "openldap.fullname" . }}-tls-scripts
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "openldap.labels" . | nindent 4 }}
+    app.kubernetes.io/component: tls
+data:
+  common.sh: |
+{{ include "openldap.tlsScript.common" . | indent 4 }}
+  renew.sh: |
+{{ include "openldap.tlsScript.renew" . | indent 4 }}
+{{- end }}

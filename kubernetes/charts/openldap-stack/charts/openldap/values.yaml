@@ -134,22 +134,44 @@ headlessService:
 # =============================================================================
 tls:
   enabled: false
-  # cert-manager | job | provided
+  # Backend that produces the TLS Secret consumed by slapd:
+  #   cert-manager -> Certificate CR points at tls.certManager.issuerRef
+  #   job          -> in-cluster CronJob generates + renews a self-signed CA
+  #                   and server cert (no external dependency)
+  #   provided     -> user pre-creates tls.provided.secretName with keys
+  #                   ca.crt, tls.crt, tls.key
   backend: cert-manager
 
   certManager:
     issuerRef:
-      name: ""
-      kind: ClusterIssuer
-    duration: 8760h            # 1 year
-    renewBefore: 720h          # 30 days
-    dnsNames: []               # additional SANs
+      name: ""                       # e.g. "internal-ca"
+      kind: ClusterIssuer            # ClusterIssuer | Issuer
+    duration: 8760h                  # 1 year
+    renewBefore: 720h                # 30 days
+    # Extra SANs appended to the chart-computed default list
+    # (<fullname>, <fullname>.<ns>.svc.cluster.local, per-pod stable names).
+    dnsNames: []
 
   job:
-    caValidityDays: 3650
+    caValidityDays: 3650             # 10 years
     certValidityDays: 365
-    renewThresholdDays: 30
-    schedule: "0 4 * * 1"
+    renewThresholdDays: 30           # renew if cert expires within N days
+    schedule: "0 4 * * 1"            # weekly Monday 04:00
+    commonName: ""                   # default: <fullname>
+    # Extra SANs (appended to chart-computed defaults). Same layout as
+    # tls.certManager.dnsNames.
+    subjectAltNames: []
+    # After a successful renewal, roll the StatefulSet so pods pick up the
+    # new cert. Requires the sync ServiceAccount to have `patch` on the STS
+    # (granted by rbac-sync when tls.backend=job).
+    rollingRestartOnRenew: true
+    image:
+      repository: alpine
+      tag: "3.19"
+      pullPolicy: IfNotPresent
+    resources:
+      requests: { cpu: 20m, memory: 32Mi }
+      limits:   { cpu: 200m, memory: 128Mi }
 
   provided:
     # Secret with tls.crt, tls.key and ca.crt keys (pre-created).
@@ -425,18 +447,31 @@ ingress:
   # ingress-nginx | gateway-api
   mode: ingress-nginx
 
+  # Externally-reachable hostname of the LDAPS endpoint. Required in every
+  # mode — used both as the SNI host and as the Certificate SAN when TLS is
+  # produced by cert-manager or the tls Job.
+  host: ""                      # e.g. ldap.example.com
+
+  # LDAPS Ingress — assumes controller has `--enable-ssl-passthrough`
+  # (SNI-based TCP proxying, since LDAPS is not HTTP). Plaintext LDAP (389)
+  # is not exposed here; use a LoadBalancer/NodePort Service if you need it
+  # externally.
   ingressNginx:
     className: nginx
-    tcpPassthrough: true
-    tcpServicesConfigMap: ingress-nginx/tcp-services
     annotations: {}
+    # ssl-passthrough IS the point — do not disable unless you know what you're
+    # doing (the controller then terminates TLS itself and can't proxy LDAPS).
+    sslPassthrough: true
 
   gatewayAPI:
-    gatewayClassName: cilium
-    listeners:
-      ldaps:
-        port: 636
-        hostname: ""
+    # apiVersion: gateway.networking.k8s.io/v1 (TLSRoute + Gateway)
+    gatewayClassName: ""        # e.g. cilium | envoy | istio
+    # Existing Gateway to attach to; if empty, the chart provisions a
+    # dedicated Gateway with a TLS-passthrough listener on port 636.
+    gatewayName: ""
+    gatewayNamespace: ""        # defaults to release namespace
+    listenerName: "ldaps"
+    port: 636
 
 # =============================================================================
 # Hardening — sensible defaults for MVP, tightened in PR 7

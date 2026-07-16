@@ -209,7 +209,7 @@ spec:
               subPath: accesslog-data
             - name: run
               mountPath: /run/openldap
-            {{- if and .Values.tls.enabled .Values.tls.provided.secretName }}
+            {{- if .Values.tls.enabled }}
             - name: tls
               mountPath: /etc/openldap/certs
               readOnly: true
@@ -287,10 +287,10 @@ spec:
           emptyDir:
             medium: Memory
             sizeLimit: 16Mi
-        {{- if and .Values.tls.enabled .Values.tls.provided.secretName }}
+        {{- if .Values.tls.enabled }}
         - name: tls
           secret:
-            secretName: {{ .Values.tls.provided.secretName }}
+            secretName: {{ include "openldap.tlsSecretName" . }}
             defaultMode: 0400
         {{- end }}
   {{- if .Values.persistence.enabled }}

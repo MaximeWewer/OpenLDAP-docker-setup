@@ -13,8 +13,8 @@ Incremental scaffold. Track progress against the roadmap below.
 | 2 | Scaffold umbrella chart + `openldap` subchart (standalone MVP) | done |
 | 3 | HA modes (mirror, multi-master, cross-cluster external peers) | done |
 | 4 | Users / groups / ppolicy sync jobs + password Secret backend | done |
-| 5 | Backup CronJob + accesslog-purge + Prometheus exporter sidecar | current |
-| 6 | Ingress (ingress-nginx + Gateway API) + cert-manager / cert Job | pending |
+| 5 | Backup CronJob + accesslog-purge + Prometheus exporter sidecar | done |
+| 6 | Ingress (ingress-nginx + Gateway API) + cert-manager / cert Job | current |
 | 7 | Hardening pass (NetworkPolicy, PSA restricted, PDB, seccomp) | pending |
 | 8 | `phpldapadmin` subchart | pending |
 | 9 | `self-service-password` subchart | pending |
@@ -163,6 +163,112 @@ Default alerts shipped with `prometheusRule.enabled=true`: `OpenLDAPDown`,
 The exporter binds as `cn=adminconfig,cn=config` (config-admin has the
 `cn=Monitor` read ACL seeded by bootstrap); its password is read from the
 same `<release>-openldap-admin` Secret via `LDAP_PASSWORD_FILE`.
+
+## TLS
+
+`openldap.tls.enabled: true` mounts a Secret with `ca.crt` + `tls.crt` +
+`tls.key` at `/etc/openldap/certs` and enables LDAPS on port 636 (plus
+StartTLS on port 389). Three backends produce that Secret:
+
+### `tls.backend: cert-manager`
+
+Emits a `Certificate` CR pointing at `tls.certManager.issuerRef`. SANs
+default to the pod/service DNS names + `ingress.host`; extend with
+`tls.certManager.dnsNames`.
+
+```yaml
+openldap:
+  tls:
+    enabled: true
+    backend: cert-manager
+    certManager:
+      issuerRef: { name: internal-ca, kind: ClusterIssuer }
+      duration: 8760h
+      renewBefore: 720h
+      dnsNames: [ldap.example.com]
+```
+
+### `tls.backend: job` (no external dependency)
+
+A pre-install/pre-upgrade Helm hook Job generates a self-signed CA + a
+server cert and writes them to `<release>-openldap-tls`. A weekly CronJob
+(`tls.job.schedule`) runs `openssl x509 -checkend` and regenerates when
+the cert is inside `renewThresholdDays`. On successful renewal the
+StatefulSet is rolled (`rollingRestartOnRenew: true`) so pods pick up the
+new cert without downtime — the sync ServiceAccount is granted
+`statefulsets/patch` for this to work.
+
+```yaml
+openldap:
+  tls:
+    enabled: true
+    backend: job
+    job:
+      caValidityDays: 3650
+      certValidityDays: 365
+      renewThresholdDays: 30
+      schedule: "0 4 * * 1"
+      commonName: "openldap"
+      subjectAltNames: [ldap.example.com]
+      rollingRestartOnRenew: true
+```
+
+### `tls.backend: provided`
+
+The chart mounts an existing Secret you produce out-of-band (Vault
+sidecar, external-secrets, manually populated). Required keys:
+`ca.crt`, `tls.crt`, `tls.key`.
+
+```yaml
+openldap:
+  tls:
+    enabled: true
+    backend: provided
+    provided:
+      secretName: my-existing-tls-secret
+```
+
+## Ingress (LDAPS only)
+
+`openldap.ingress.enabled: true` publishes the LDAPS endpoint externally.
+Requires `tls.enabled: true` since both supported modes rely on SNI
+passthrough (LDAP plaintext on 389 is not routable via HTTP Ingress —
+use a `LoadBalancer` / `NodePort` Service if you need it externally).
+
+### `ingress.mode: ingress-nginx`
+
+Emits an `Ingress` with `nginx.ingress.kubernetes.io/ssl-passthrough:
+"true"`. Requires the ingress-nginx controller to be started with
+`--enable-ssl-passthrough`.
+
+```yaml
+openldap:
+  ingress:
+    enabled: true
+    mode: ingress-nginx
+    host: ldap.example.com
+    ingressNginx:
+      className: nginx
+```
+
+### `ingress.mode: gateway-api`
+
+Emits a `Gateway` (with a TLS-passthrough listener on port 636) and a
+`TLSRoute` bound to `ingress.host`. Pass `gatewayName` +
+`gatewayNamespace` to reuse an existing Gateway instead.
+
+```yaml
+openldap:
+  ingress:
+    enabled: true
+    mode: gateway-api
+    host: ldap.example.com
+    gatewayAPI:
+      gatewayClassName: cilium       # or envoy | istio
+      # gatewayName: existing-gw     # optional — reuse
+      # gatewayNamespace: gateways
+      port: 636
+```
 
 ## HA modes
 

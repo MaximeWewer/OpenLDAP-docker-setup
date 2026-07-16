@@ -110,6 +110,57 @@ managed `<fullname>-replicator` Secret with a persisted random password.
 {{- end -}}
 
 {{/*
+TLS Secret name — depends on the tls.backend:
+  provided     -> the user-supplied Secret
+  cert-manager -> chart-managed <fullname>-tls (target of the Certificate CR)
+  job          -> chart-managed <fullname>-tls (written by the tls-init Job)
+Every case exposes the same key layout: ca.crt, tls.crt, tls.key.
+*/}}
+{{- define "openldap.tlsSecretName" -}}
+{{- if eq .Values.tls.backend "provided" -}}
+{{- required "tls.provided.secretName is required when tls.backend=provided" .Values.tls.provided.secretName -}}
+{{- else -}}
+{{- printf "%s-tls" (include "openldap.fullname" .) -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
+Default TLS SAN list (used by both cert-manager Certificate and the tls Job).
+Includes:
+  <fullname>
+  <fullname>.<ns>
+  <fullname>.<ns>.svc
+  <fullname>.<ns>.svc.cluster.local
+  <fullname>-headless.<ns>.svc.cluster.local
+  <fullname>-<i>.<fullname>-headless.<ns>.svc.cluster.local  (per replica)
+Plus, if ingress.host is set, that host too.
+User-provided SANs are appended after the defaults.
+*/}}
+{{- define "openldap.tlsDNSNames" -}}
+{{- $ctx := . -}}
+{{- $fn := include "openldap.fullname" $ctx -}}
+{{- $ns := $ctx.Release.Namespace -}}
+{{- $hs := include "openldap.headlessServiceName" $ctx -}}
+{{- $names := list $fn (printf "%s.%s" $fn $ns) (printf "%s.%s.svc" $fn $ns) (printf "%s.%s.svc.cluster.local" $fn $ns) (printf "%s.%s.svc.cluster.local" $hs $ns) -}}
+{{- range $i, $_ := until (int $ctx.Values.replicaCount) -}}
+{{- $names = append $names (printf "%s-%d.%s.%s.svc.cluster.local" $fn $i $hs $ns) -}}
+{{- end -}}
+{{- if $ctx.Values.ingress.host -}}
+{{- $names = append $names $ctx.Values.ingress.host -}}
+{{- end -}}
+{{- $extra := list -}}
+{{- if eq $ctx.Values.tls.backend "cert-manager" -}}
+{{- $extra = $ctx.Values.tls.certManager.dnsNames -}}
+{{- else if eq $ctx.Values.tls.backend "job" -}}
+{{- $extra = $ctx.Values.tls.job.subjectAltNames -}}
+{{- end -}}
+{{- range $extra -}}
+{{- $names = append $names . -}}
+{{- end -}}
+{{- toJson (uniq $names) -}}
+{{- end -}}
+
+{{/*
 Best-effort mail domain derived from directory.suffix. Turns
 `dc=example,dc=org` into `example.org` and `dc=corp,dc=example,dc=com`
 into `corp.example.com`. Users can override by setting

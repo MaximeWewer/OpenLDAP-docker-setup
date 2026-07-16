@@ -1,0 +1,72 @@
+{{- if and .Values.tls.enabled (eq .Values.tls.backend "job") -}}
+{{- $fullName := include "openldap.fullname" . -}}
+{{- $commonName := default $fullName .Values.tls.job.commonName -}}
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ $fullName }}-tls-renew
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "openldap.labels" . | nindent 4 }}
+    app.kubernetes.io/component: tls
+spec:
+  schedule: {{ .Values.tls.job.schedule | quote }}
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      ttlSecondsAfterFinished: 86400
+      template:
+        metadata:
+          labels:
+            {{- include "openldap.selectorLabels" . | nindent 12 }}
+            app.kubernetes.io/component: tls
+        spec:
+          restartPolicy: OnFailure
+          serviceAccountName: {{ $fullName }}-sync
+          securityContext:
+            runAsNonRoot: false
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: tls-renew
+              image: "{{ .Values.tls.job.image.repository }}:{{ .Values.tls.job.image.tag }}"
+              imagePullPolicy: {{ .Values.tls.job.image.pullPolicy }}
+              command: ["/bin/sh", "-eu", "/scripts/renew.sh"]
+              env:
+                - name: RELEASE_NAME
+                  value: {{ .Release.Name | quote }}
+                - name: RELEASE_NAMESPACE
+                  value: {{ .Release.Namespace | quote }}
+                - name: TLS_SECRET_NAME
+                  value: {{ include "openldap.tlsSecretName" . | quote }}
+                - name: STS_NAME
+                  value: {{ $fullName | quote }}
+                - name: COMMON_NAME
+                  value: {{ $commonName | quote }}
+                - name: DNS_NAMES_JSON
+                  value: {{ include "openldap.tlsDNSNames" . | quote }}
+                - name: CA_DAYS
+                  value: {{ .Values.tls.job.caValidityDays | quote }}
+                - name: CERT_DAYS
+                  value: {{ .Values.tls.job.certValidityDays | quote }}
+                - name: RENEW_THRESHOLD_DAYS
+                  value: {{ .Values.tls.job.renewThresholdDays | quote }}
+                - name: ROLLING_RESTART
+                  value: {{ .Values.tls.job.rollingRestartOnRenew | quote }}
+                - name: KUBECTL_VERSION
+                  value: {{ .Values.cli.kubectlVersion | quote }}
+              resources:
+                {{- toYaml .Values.tls.job.resources | nindent 16 }}
+              volumeMounts:
+                - name: scripts
+                  mountPath: /scripts
+                  readOnly: true
+          volumes:
+            - name: scripts
+              configMap:
+                name: {{ $fullName }}-tls-scripts
+                defaultMode: 0555
+{{- end }}

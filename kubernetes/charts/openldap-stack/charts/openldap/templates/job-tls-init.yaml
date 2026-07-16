@@ -1,0 +1,140 @@
+{{- if and .Values.tls.enabled (eq .Values.tls.backend "job") -}}
+{{- $fullName := include "openldap.fullname" . -}}
+{{- $commonName := default $fullName .Values.tls.job.commonName -}}
+{{- /*
+Pre-install / pre-upgrade hook — runs BEFORE the StatefulSet is created so
+slapd finds the TLS Secret when it first mounts /etc/openldap/certs. Uses
+its own SA/Role/RB (also as pre-install hooks) so it doesn't depend on the
+regular sync RBAC, which hasn't been applied yet during the hook phase.
+Idempotent: the init script exits 0 if the Secret already exists.
+*/ -}}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ $fullName }}-tls-init
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "openldap.labels" . | nindent 4 }}
+    app.kubernetes.io/component: tls
+  annotations:
+    helm.sh/hook: pre-install,pre-upgrade
+    helm.sh/hook-weight: "-10"
+    helm.sh/hook-delete-policy: before-hook-creation
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ $fullName }}-tls-init
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "openldap.labels" . | nindent 4 }}
+    app.kubernetes.io/component: tls
+  annotations:
+    helm.sh/hook: pre-install,pre-upgrade
+    helm.sh/hook-weight: "-10"
+    helm.sh/hook-delete-policy: before-hook-creation
+rules:
+  - apiGroups: [""]
+    resources: [secrets]
+    verbs: [get, create, update, patch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ $fullName }}-tls-init
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "openldap.labels" . | nindent 4 }}
+    app.kubernetes.io/component: tls
+  annotations:
+    helm.sh/hook: pre-install,pre-upgrade
+    helm.sh/hook-weight: "-10"
+    helm.sh/hook-delete-policy: before-hook-creation
+subjects:
+  - kind: ServiceAccount
+    name: {{ $fullName }}-tls-init
+    namespace: {{ .Release.Namespace }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ $fullName }}-tls-init
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ $fullName }}-tls-init-scripts
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "openldap.labels" . | nindent 4 }}
+    app.kubernetes.io/component: tls
+  annotations:
+    helm.sh/hook: pre-install,pre-upgrade
+    helm.sh/hook-weight: "-10"
+    helm.sh/hook-delete-policy: before-hook-creation
+data:
+  common.sh: |
+{{ include "openldap.tlsScript.common" . | indent 4 }}
+  init.sh: |
+{{ include "openldap.tlsScript.init" . | indent 4 }}
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ $fullName }}-tls-init
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "openldap.labels" . | nindent 4 }}
+    app.kubernetes.io/component: tls
+  annotations:
+    helm.sh/hook: pre-install,pre-upgrade
+    helm.sh/hook-weight: "-5"
+    helm.sh/hook-delete-policy: before-hook-creation
+spec:
+  backoffLimit: 2
+  ttlSecondsAfterFinished: 3600
+  template:
+    metadata:
+      labels:
+        {{- include "openldap.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: tls
+    spec:
+      restartPolicy: Never
+      serviceAccountName: {{ $fullName }}-tls-init
+      securityContext:
+        runAsNonRoot: false                 # apk add + openssl need root
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: tls-init
+          image: "{{ .Values.tls.job.image.repository }}:{{ .Values.tls.job.image.tag }}"
+          imagePullPolicy: {{ .Values.tls.job.image.pullPolicy }}
+          command: ["/bin/sh", "-eu", "/scripts/init.sh"]
+          env:
+            - name: RELEASE_NAME
+              value: {{ .Release.Name | quote }}
+            - name: RELEASE_NAMESPACE
+              value: {{ .Release.Namespace | quote }}
+            - name: TLS_SECRET_NAME
+              value: {{ include "openldap.tlsSecretName" . | quote }}
+            - name: COMMON_NAME
+              value: {{ $commonName | quote }}
+            - name: DNS_NAMES_JSON
+              value: {{ include "openldap.tlsDNSNames" . | quote }}
+            - name: CA_DAYS
+              value: {{ .Values.tls.job.caValidityDays | quote }}
+            - name: CERT_DAYS
+              value: {{ .Values.tls.job.certValidityDays | quote }}
+            - name: KUBECTL_VERSION
+              value: {{ .Values.cli.kubectlVersion | quote }}
+          resources:
+            {{- toYaml .Values.tls.job.resources | nindent 12 }}
+          volumeMounts:
+            - name: scripts
+              mountPath: /scripts
+              readOnly: true
+      volumes:
+        - name: scripts
+          configMap:
+            name: {{ $fullName }}-tls-init-scripts
+            defaultMode: 0555
+{{- end }}

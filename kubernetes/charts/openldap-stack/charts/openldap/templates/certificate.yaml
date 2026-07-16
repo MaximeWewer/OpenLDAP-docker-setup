@@ -1,0 +1,30 @@
+{{- if and .Values.tls.enabled (eq .Values.tls.backend "cert-manager") -}}
+{{- $issuer := .Values.tls.certManager.issuerRef -}}
+{{- required "tls.certManager.issuerRef.name is required when tls.backend=cert-manager" $issuer.name -}}
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: {{ include "openldap.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "openldap.labels" . | nindent 4 }}
+    app.kubernetes.io/component: tls
+spec:
+  secretName: {{ include "openldap.tlsSecretName" . }}
+  duration: {{ .Values.tls.certManager.duration }}
+  renewBefore: {{ .Values.tls.certManager.renewBefore }}
+  commonName: {{ include "openldap.fullname" . }}
+  usages: [server auth, digital signature, key encipherment]
+  privateKey:
+    algorithm: RSA
+    size: 2048
+    rotationPolicy: Always
+  dnsNames:
+    {{- range fromJsonArray (include "openldap.tlsDNSNames" .) }}
+    - {{ . | quote }}
+    {{- end }}
+  issuerRef:
+    name: {{ $issuer.name }}
+    kind: {{ default "ClusterIssuer" $issuer.kind }}
+    group: cert-manager.io
+{{- end }}

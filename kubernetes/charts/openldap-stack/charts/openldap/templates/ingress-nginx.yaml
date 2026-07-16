@@ -1,0 +1,38 @@
+{{- if and .Values.ingress.enabled (eq .Values.ingress.mode "ingress-nginx") -}}
+{{- if not .Values.tls.enabled -}}
+{{- fail "ingress.enabled=true with mode=ingress-nginx requires tls.enabled=true (only LDAPS is routed — plaintext LDAP needs a LoadBalancer/NodePort Service)" -}}
+{{- end -}}
+{{- required "ingress.host is required" .Values.ingress.host -}}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "openldap.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "openldap.labels" . | nindent 4 }}
+  annotations:
+    # ssl-passthrough proxies raw TLS bytes based on SNI, without terminating
+    # the TLS session — required for LDAPS since it isn't HTTP. Controller
+    # must be started with `--enable-ssl-passthrough` for this to have any
+    # effect.
+    nginx.ingress.kubernetes.io/ssl-passthrough: {{ .Values.ingress.ingressNginx.sslPassthrough | quote }}
+    {{- with .Values.ingress.ingressNginx.annotations }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  ingressClassName: {{ .Values.ingress.ingressNginx.className }}
+  rules:
+    - host: {{ .Values.ingress.host }}
+      http:
+        paths:
+          # ssl-passthrough forwards raw TLS on port 443 based on the host
+          # header (SNI). This HTTP path stanza is only required to satisfy
+          # the Ingress schema; nginx never actually parses HTTP on it.
+          - path: /
+            pathType: ImplementationSpecific
+            backend:
+              service:
+                name: {{ include "openldap.fullname" . }}
+                port:
+                  number: {{ .Values.service.ldapsPort }}
+{{- end }}
