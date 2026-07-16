@@ -41,7 +41,7 @@ Shared with other modes (parent directory):
 | `certs.sh` + `certs/` | TLS cert generation/renewal (idempotent; see root README for cron) |
 | `backup/` | Backup dump location |
 
-For day-to-day administration (users, groups, ppolicy, diagnostics) use **[openldap-cli](https://github.com/MaximeWewer/openldap-cli)** — see root README → *Administration — openldap-cli*.
+For day-to-day administration (users, groups, ppolicy, diagnostics) use **[openldap-cli](https://github.com/maximewewer/openldap-cli)** — see root README → *Administration — openldap-cli*.
 
 ## Database sizing
 

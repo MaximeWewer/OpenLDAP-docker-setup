@@ -14,10 +14,10 @@ keywords:
   - ldap
   - password
   - reset
-home: https://github.com/MaximeWewer/OpenLDAP-docker-setup
+home: https://github.com/maximewewer/openldap-setup
 sources:
-  - https://github.com/MaximeWewer/OpenLDAP-docker-setup
+  - https://github.com/maximewewer/openldap-setup
   - https://github.com/ltb-project/self-service-password
 maintainers:
-  - name: MaximeWewer
-    url: https://github.com/MaximeWewer
+  - name: maximewewer
+    url: https://github.com/maximewewer

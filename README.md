@@ -13,7 +13,7 @@ runtime that matches your infrastructure.
 
 Both layouts share the same LDIF bootstrap, the same overlays (memberof,
 refint, ppolicy, dynlist, accesslog, syncprov) and the same
-[openldap-cli](https://github.com/MaximeWewer/openldap-cli) admin surface.
+[openldap-cli](https://github.com/maximewewer/openldap-cli) admin surface.
 
 ## Feature parity
 
@@ -24,7 +24,7 @@ Behaviours common to both platforms:
 - Least-privilege ACLs per OU, SSHA-hashed passwords, TLS/LDAPS
 - Idempotent bootstrap + cert renewal (Docker: cron; Kubernetes: CronJob)
 - Full admin surface via `openldap-cli` (users, groups, ppolicy, ACLs, backup, diagnostics)
-- Prometheus monitoring via [OpenLDAP_prometheus_exporter](https://github.com/MaximeWewer/OpenLDAP_prometheus_exporter)
+- Prometheus monitoring via [openldap_prometheus_exporter](https://github.com/maximewewer/openldap_prometheus_exporter)
 - POSIX schema toggle for SSH / UNIX login
 - Backup + accesslog purge automation
 
@@ -40,8 +40,8 @@ Kubernetes-only additions:
 
 ## Companion tooling
 
-- **[openldap-cli](https://github.com/MaximeWewer/openldap-cli)** — single static Go binary. Day-to-day admin (users, groups, ppolicy, backup, diagnostics). Called by Docker admins directly and by the Kubernetes chart's sync Jobs.
-- **[OpenLDAP_prometheus_exporter](https://github.com/MaximeWewer/OpenLDAP_prometheus_exporter)** — Prometheus scraper for `cn=Monitor`. Docker: sidecar container; Kubernetes: sidecar in the StatefulSet + `ServiceMonitor` + baseline `PrometheusRule`.
+- **[openldap-cli](https://github.com/maximewewer/openldap-cli)** — single static Go binary. Day-to-day admin (users, groups, ppolicy, backup, diagnostics). Called by Docker admins directly and by the Kubernetes chart's sync Jobs.
+- **[openldap_prometheus_exporter](https://github.com/maximewewer/openldap_prometheus_exporter)** — Prometheus scraper for `cn=Monitor`. Docker: sidecar container; Kubernetes: sidecar in the StatefulSet + `ServiceMonitor` + baseline `PrometheusRule`.
 
 ## Quick start
 

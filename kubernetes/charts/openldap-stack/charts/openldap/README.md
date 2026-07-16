@@ -52,7 +52,7 @@ Kubernetes: `>=1.27.0-0`
 | backup.s3.existingSecret | string | `""` |  |
 | backup.s3.region | string | `""` |  |
 | backup.schedule | string | `"0 22 * * *"` |  |
-| cli.downloadUrl | string | `"https://github.com/MaximeWewer/openldap-cli/releases/download"` |  |
+| cli.downloadUrl | string | `"https://github.com/maximewewer/openldap-cli/releases/download"` |  |
 | cli.image.pullPolicy | string | `"IfNotPresent"` |  |
 | cli.image.repository | string | `"alpine"` |  |
 | cli.image.tag | string | `"3.19"` |  |

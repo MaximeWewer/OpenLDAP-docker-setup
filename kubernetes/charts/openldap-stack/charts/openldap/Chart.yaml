@@ -12,9 +12,9 @@ keywords:
   - openldap
   - ldap
   - directory
-home: https://github.com/MaximeWewer/OpenLDAP-docker-setup
+home: https://github.com/maximewewer/openldap-setup
 sources:
-  - https://github.com/MaximeWewer/OpenLDAP-docker-setup
+  - https://github.com/maximewewer/openldap-setup
 maintainers:
-  - name: MaximeWewer
-    url: https://github.com/MaximeWewer
+  - name: maximewewer
+    url: https://github.com/maximewewer

@@ -420,7 +420,7 @@ cli:
     tag: "3.19"
     pullPolicy: IfNotPresent
   version: "v2026.6.3"
-  downloadUrl: "https://github.com/MaximeWewer/openldap-cli/releases/download"
+  downloadUrl: "https://github.com/maximewewer/openldap-cli/releases/download"
   kubectlVersion: "v1.29.4"
 
   # Wait for LDAP to be reachable before running sync scripts (Job startup).
@@ -595,7 +595,7 @@ monitoring:
     port: 9330
 
     # Extra env vars passed to the exporter container — see
-    # https://github.com/MaximeWewer/OpenLDAP_prometheus_exporter for the full
+    # https://github.com/maximewewer/openldap_prometheus_exporter for the full
     # reference (LDAP_TIMEOUT, RATE_LIMIT_*, CIRCUIT_BREAKER_*, …).
     extraEnv: []
     # Example:

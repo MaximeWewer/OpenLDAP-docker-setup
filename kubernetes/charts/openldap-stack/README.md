@@ -2,7 +2,7 @@
 
 Umbrella chart for the OpenLDAP stack: OpenLDAP 2.6 server, phpLDAPadmin,
 and Self Service Password. Declarative GitOps-friendly administration via
-openldap-cli (https://github.com/MaximeWewer/openldap-cli).
+openldap-cli (https://github.com/maximewewer/openldap-cli).
 
 ## TL;DR
 
@@ -99,7 +99,7 @@ Kubernetes: `>=1.27.0-0`
 | openldap.backup.s3.existingSecret | string | `""` |  |
 | openldap.backup.s3.region | string | `""` |  |
 | openldap.backup.schedule | string | `"0 22 * * *"` |  |
-| openldap.cli.downloadUrl | string | `"https://github.com/MaximeWewer/openldap-cli/releases/download"` |  |
+| openldap.cli.downloadUrl | string | `"https://github.com/maximewewer/openldap-cli/releases/download"` |  |
 | openldap.cli.image.pullPolicy | string | `"IfNotPresent"` |  |
 | openldap.cli.image.repository | string | `"alpine"` |  |
 | openldap.cli.image.tag | string | `"3.19"` |  |

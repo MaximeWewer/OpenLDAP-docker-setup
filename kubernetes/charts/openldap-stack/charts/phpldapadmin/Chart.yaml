@@ -13,10 +13,10 @@ keywords:
   - ldap
   - directory
   - ui
-home: https://github.com/MaximeWewer/OpenLDAP-docker-setup
+home: https://github.com/maximewewer/openldap-setup
 sources:
-  - https://github.com/MaximeWewer/OpenLDAP-docker-setup
+  - https://github.com/maximewewer/openldap-setup
   - https://github.com/leenooks/phpLDAPadmin
 maintainers:
-  - name: MaximeWewer
-    url: https://github.com/MaximeWewer
+  - name: maximewewer
+    url: https://github.com/maximewewer

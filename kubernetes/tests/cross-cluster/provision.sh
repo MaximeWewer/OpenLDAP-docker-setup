@@ -73,7 +73,7 @@ fi
 CLI_VERSION="${CLI_VERSION:-v2026.7.2}"
 if ! command -v openldap-cli >/dev/null 2>&1 || \
    ! openldap-cli version 2>/dev/null | grep -q "$CLI_VERSION"; then
-  curl -fsSL "https://github.com/MaximeWewer/openldap-cli/releases/download/${CLI_VERSION}/openldap-cli_${CLI_VERSION}_linux_amd64.tar.gz" | \
+  curl -fsSL "https://github.com/maximewewer/openldap-cli/releases/download/${CLI_VERSION}/openldap-cli_${CLI_VERSION}_linux_amd64.tar.gz" | \
     tar xz -C /usr/local/bin openldap-cli
   chmod +x /usr/local/bin/openldap-cli
 fi

@@ -2,7 +2,7 @@
 
 A streamlined way to deploy an **[OpenLDAP](https://openldap.org/)** server along with **[phpLDAPadmin](https://github.com/leenooks/phpLDAPadmin)** and **[Self Service Password](https://github.com/ltb-project/self-service-password)** using Docker Compose. Built on the minimal [cleanstart/openldap](https://hub.docker.com/r/cleanstart/openldap) image (OpenLDAP 2.6).
 
-Day-to-day directory administration is handled by the companion CLI **[openldap-cli](https://github.com/MaximeWewer/openldap-cli)**.
+Day-to-day directory administration is handled by the companion CLI **[openldap-cli](https://github.com/maximewewer/openldap-cli)**.
 
 > Running on Kubernetes? See the Helm chart in [`../kubernetes/`](../kubernetes/).
 
@@ -59,7 +59,7 @@ Day-to-day directory administration is handled by the companion CLI **[openldap-
 - **Pre-configured overlays**: memberof, referential integrity, password policy, dynamic lists, accesslog (HA), syncprov (HA)
 - **Three deployment modes**: standalone, HA active-passive (MirrorMode), HA active-active (N-way Multi-Master)
 - **Vagrant-based HA test cluster**: boot 3 VMs to validate replication, failover, shared-CA TLS
-- **Companion CLI**: [openldap-cli](https://github.com/MaximeWewer/openldap-cli) for users, groups, ppolicy, ACLs, diagnostics, backup
+- **Companion CLI**: [openldap-cli](https://github.com/maximewewer/openldap-cli) for users, groups, ppolicy, ACLs, diagnostics, backup
 - **POSIX optional**: posixAccount/shadowAccount via opt-in schema flag
 
 ### Architecture
@@ -119,7 +119,7 @@ Per-mode READMEs go into the specific operational details:
 
 - Docker & Docker Compose
 - `ldap-utils` (only needed for raw `ldapsearch` debug; the CLI covers everything else)
-- [openldap-cli](https://github.com/MaximeWewer/openldap-cli) — companion admin tool
+- [openldap-cli](https://github.com/maximewewer/openldap-cli) — companion admin tool
 - VirtualBox + Vagrant — HA modes only (for the local test cluster)
 
 ### Quick start
@@ -154,9 +154,9 @@ Each HA mode boots a 3-VM VirtualBox cluster on `192.168.58.10-12` running Docke
 
 Day-to-day directory administration (users, groups, service accounts, ppolicy, ACLs, diagnostics, backup) is handled by the companion CLI:
 
-> **[github.com/MaximeWewer/openldap-cli](https://github.com/MaximeWewer/openldap-cli)** — a single static Go binary (no runtime, no dependencies).
+> **[github.com/maximewewer/openldap-cli](https://github.com/maximewewer/openldap-cli)** — a single static Go binary (no runtime, no dependencies).
 
-This repo (`OpenLDAP-docker-setup`) is now only responsible for **bootstrapping and operating the slapd container(s)** (compose, slapadd, TLS certs, HA replication wiring, physical backups).
+This repo (`openldap-setup`) is now only responsible for **bootstrapping and operating the slapd container(s)** (compose, slapadd, TLS certs, HA replication wiring, physical backups).
 
 ### Configure
 
@@ -423,7 +423,7 @@ Replace `<mode>` with your deployment directory. On HA, install the cron on **ev
 ```cron
 # Weekly check at 04:00 every Monday: renew if expiring within 30d, restart openldap if renewed.
 # (HA peer example - keep --san per-node)
-0 4 * * 1 cd /path/to/OpenLDAP-docker-setup/<mode> && bash certs.sh --renew-threshold-days 30 --san "DNS:ldap2,IP:192.168.58.11" --restart --quiet >> /var/log/openldap-certs.log 2>&1
+0 4 * * 1 cd /path/to/openldap-setup/<mode> && bash certs.sh --renew-threshold-days 30 --san "DNS:ldap2,IP:192.168.58.11" --restart --quiet >> /var/log/openldap-certs.log 2>&1
 ```
 
 - `--quiet` keeps the log empty when no action is taken; only renewals/errors are recorded.
@@ -614,11 +614,11 @@ docker compose up -d
 ```bash
 # LDIF backup via CLI — recommended (no docker, no root, no slapd restart)
 # Positional file path; .ldif.gz auto-gzips the dump.
-0 22 * * * /usr/bin/openldap-cli backup data /path/to/OpenLDAP-docker-setup/<mode>/backup/data_$(date +\%Y\%m\%d).ldif.gz 2>>/var/log/openldap-backup.log
-0 22 * * * /usr/bin/openldap-cli backup config /path/to/OpenLDAP-docker-setup/<mode>/backup/config_$(date +\%Y\%m\%d).ldif.gz 2>>/var/log/openldap-backup.log
+0 22 * * * /usr/bin/openldap-cli backup data /path/to/openldap-setup/<mode>/backup/data_$(date +\%Y\%m\%d).ldif.gz 2>>/var/log/openldap-backup.log
+0 22 * * * /usr/bin/openldap-cli backup config /path/to/openldap-setup/<mode>/backup/config_$(date +\%Y\%m\%d).ldif.gz 2>>/var/log/openldap-backup.log
 
 # Retention: drop LDIF + tarballs older than 30 days
-0 23 * * * find /path/to/OpenLDAP-docker-setup/<mode>/backup -type f \( -name "*.tar.gz" -o -name "*.ldif" -o -name "*.ldif.gz" \) -mtime +30 -delete
+0 23 * * * find /path/to/openldap-setup/<mode>/backup -type f \( -name "*.tar.gz" -o -name "*.ldif" -o -name "*.ldif.gz" \) -mtime +30 -delete
 ```
 
 ---
@@ -633,7 +633,7 @@ openldap-cli ops db-stats               # focused on back_mdb (entries, pages, %
 openldap-cli ops replication            # local contextCSN per database
 ```
 
-To expose these metrics to Prometheus, use the [OpenLDAP Prometheus Exporter](https://github.com/MaximeWewer/OpenLDAP_prometheus_exporter). It connects to `cn=Monitor` and serves metrics on an HTTP endpoint for Prometheus scraping.
+To expose these metrics to Prometheus, use the [OpenLDAP Prometheus Exporter](https://github.com/maximewewer/openldap_prometheus_exporter). It connects to `cn=Monitor` and serves metrics on an HTTP endpoint for Prometheus scraping.
 
 ---
 

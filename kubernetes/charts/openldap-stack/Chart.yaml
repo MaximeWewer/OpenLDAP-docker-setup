@@ -3,7 +3,7 @@ name: openldap-stack
 description: |
   Umbrella chart for the OpenLDAP stack: OpenLDAP 2.6 server, phpLDAPadmin,
   and Self Service Password. Declarative GitOps-friendly administration via
-  openldap-cli (https://github.com/MaximeWewer/openldap-cli).
+  openldap-cli (https://github.com/maximewewer/openldap-cli).
 type: application
 version: 0.1.0
 appVersion: "2.6.13"
@@ -14,14 +14,14 @@ keywords:
   - directory
   - phpldapadmin
   - self-service-password
-home: https://github.com/MaximeWewer/OpenLDAP-docker-setup
+home: https://github.com/maximewewer/openldap-setup
 sources:
-  - https://github.com/MaximeWewer/OpenLDAP-docker-setup
-  - https://github.com/MaximeWewer/openldap-cli
-  - https://github.com/MaximeWewer/OpenLDAP_prometheus_exporter
+  - https://github.com/maximewewer/openldap-setup
+  - https://github.com/maximewewer/openldap-cli
+  - https://github.com/maximewewer/openldap_prometheus_exporter
 maintainers:
-  - name: MaximeWewer
-    url: https://github.com/MaximeWewer
+  - name: maximewewer
+    url: https://github.com/maximewewer
 dependencies:
   - name: openldap
     version: 0.1.0

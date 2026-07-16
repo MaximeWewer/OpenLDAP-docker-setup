@@ -18,7 +18,7 @@ spec:
   project: default
 
   source:
-    repoURL: REPO_URL                            # e.g. https://github.com/MaximeWewer/OpenLDAP-docker-setup
+    repoURL: REPO_URL                            # e.g. https://github.com/maximewewer/openldap-setup
     targetRevision: main
     path: kubernetes/charts/openldap-stack
     helm:

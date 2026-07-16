@@ -2,7 +2,7 @@
 
 A production-oriented Helm chart to deploy an **[OpenLDAP](https://openldap.org/)** server along with **[phpLDAPadmin](https://github.com/leenooks/phpLDAPadmin)** and **[Self Service Password](https://github.com/ltb-project/self-service-password)** on Kubernetes. Built on the minimal [cleanstart/openldap](https://hub.docker.com/r/cleanstart/openldap) image (OpenLDAP 2.6).
 
-Day-to-day directory administration is handled by the companion CLI **[openldap-cli](https://github.com/MaximeWewer/openldap-cli)** — invoked from sync Jobs on `helm upgrade`, and available for ad-hoc use inside the release namespace.
+Day-to-day directory administration is handled by the companion CLI **[openldap-cli](https://github.com/maximewewer/openldap-cli)** — invoked from sync Jobs on `helm upgrade`, and available for ad-hoc use inside the release namespace.
 
 > Running on Docker Compose? See the sibling recipes in [`../docker/`](../docker/).
 
@@ -53,7 +53,7 @@ Day-to-day directory administration is handled by the companion CLI **[openldap-
 - **Three TLS backends**: `cert-manager` Certificate CR, in-cluster `job` (self-signed CA + weekly renew CronJob + rolling restart), or user-`provided` Secret.
 - **Ingress**: `ingress-nginx` SSL passthrough OR Gateway API `TLSRoute` — both for LDAPS.
 - **Backup + accesslog purge**: daily `openldap-cli backup` + weekly `openldap-cli ops accesslog-purge` CronJobs.
-- **Prometheus monitoring**: sidecar [OpenLDAP_prometheus_exporter](https://github.com/MaximeWewer/OpenLDAP_prometheus_exporter) + `ServiceMonitor` + baseline `PrometheusRule`.
+- **Prometheus monitoring**: sidecar [openldap_prometheus_exporter](https://github.com/maximewewer/openldap_prometheus_exporter) + `ServiceMonitor` + baseline `PrometheusRule`.
 - **Hardened by default**: non-root, drop-all caps, read-only rootfs, seccomp `RuntimeDefault`, auto-PDB in HA, NetworkPolicy scoped to server pods.
 - **Extension points**: `extraEnv`, `extraVolumes`/`Mounts`, `sidecars`, `extraInitContainers`, `extraDeploy` on every subchart.
 - **Custom bootstrap**: `customSchemas.files`/`existingConfigMap`, `customLdifs.files`/`existingConfigMap`, `customAcls` / `extraAcls` — extend the tree without forking.
@@ -188,7 +188,7 @@ Two flows: **declarative** (`values.yaml` reconciled by sync Jobs on every upgra
 
 ### Declarative flow (sync Jobs)
 
-`openldap.users`, `openldap.groups` and `openldap.policies` are the source of truth for the directory content. On every `helm install/upgrade`, three post-install/upgrade Jobs run in order (weights 5 / 10 / 15) and drive [openldap-cli](https://github.com/MaximeWewer/openldap-cli) against the LDAP Service:
+`openldap.users`, `openldap.groups` and `openldap.policies` are the source of truth for the directory content. On every `helm install/upgrade`, three post-install/upgrade Jobs run in order (weights 5 / 10 / 15) and drive [openldap-cli](https://github.com/maximewewer/openldap-cli) against the LDAP Service:
 
 - **`ppolicy`** — `openldap-cli ppolicy set <name> [--min-length …]` idempotent create/update.
 - **`users`** — `openldap-cli user info` → `user add` (with generated pw + Secret) OR `user set` for drift; on removal, `user delete` or `user set pwdAccountLockedTime` depending on `onUserRemove`.
@@ -224,7 +224,7 @@ The sync Jobs install `openldap-cli` + `kubectl` from GitHub / dl.k8s.io into a 
 
 ### Ad-hoc CLI use
 
-For one-off inspection or emergency ops, install [openldap-cli](https://github.com/MaximeWewer/openldap-cli) locally and point it at a `kubectl port-forward`:
+For one-off inspection or emergency ops, install [openldap-cli](https://github.com/maximewewer/openldap-cli) locally and point it at a `kubectl port-forward`:
 
 ```bash
 kubectl -n ldap port-forward svc/ldap-openldap 389:389 &
@@ -426,7 +426,7 @@ Restore flow (fresh install → import dump → optionally re-enable sync Jobs):
 
 ## Prometheus monitoring
 
-`openldap.monitoring.enabled: true` adds a sidecar [OpenLDAP_prometheus_exporter](https://github.com/MaximeWewer/OpenLDAP_prometheus_exporter) to every StatefulSet pod, publishes port `9330` on the LDAP Service, and optionally emits a `ServiceMonitor` + `PrometheusRule` for prometheus-operator installs.
+`openldap.monitoring.enabled: true` adds a sidecar [openldap_prometheus_exporter](https://github.com/maximewewer/openldap_prometheus_exporter) to every StatefulSet pod, publishes port `9330` on the LDAP Service, and optionally emits a `ServiceMonitor` + `PrometheusRule` for prometheus-operator installs.
 
 ```yaml
 openldap:
