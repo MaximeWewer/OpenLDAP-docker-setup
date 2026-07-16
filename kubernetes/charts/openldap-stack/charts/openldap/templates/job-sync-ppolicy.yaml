@@ -1,0 +1,3 @@
+{{- if .Values.policies -}}
+{{ include "openldap.syncJob" (dict "context" . "name" "ppolicy" "script" "ppolicy.sh" "weight" "5") }}
+{{- end }}

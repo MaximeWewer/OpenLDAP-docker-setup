@@ -1,0 +1,29 @@
+{{- /*
+Declarative spec consumed by the sync scripts — one JSON blob per resource.
+Regenerated on every helm upgrade so the sync Jobs always see the current
+values.yaml. Checksums on the sync Job pods force re-run when the spec
+changes.
+*/ -}}
+{{- if or .Values.users .Values.groups .Values.policies -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "openldap.fullname" . }}-sync-spec
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "openldap.labels" . | nindent 4 }}
+    app.kubernetes.io/component: sync
+data:
+  {{- if .Values.policies }}
+  policies.json: |
+    {{ .Values.policies | toJson }}
+  {{- end }}
+  {{- if .Values.users }}
+  users.json: |
+    {{ .Values.users | toJson }}
+  {{- end }}
+  {{- if .Values.groups }}
+  groups.json: |
+    {{ .Values.groups | toJson }}
+  {{- end }}
+{{- end }}

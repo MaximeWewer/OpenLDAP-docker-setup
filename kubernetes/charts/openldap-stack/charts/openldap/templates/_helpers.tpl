@@ -108,3 +108,21 @@ managed `<fullname>-replicator` Secret with a persisted random password.
 {{- printf "%s-replicator" (include "openldap.fullname" .) -}}
 {{- end -}}
 {{- end -}}
+
+{{/*
+Best-effort mail domain derived from directory.suffix. Turns
+`dc=example,dc=org` into `example.org` and `dc=corp,dc=example,dc=com`
+into `corp.example.com`. Users can override by setting
+`.Values.directory.mailDomain`.
+*/}}
+{{- define "openldap.mailDomain" -}}
+{{- if .Values.directory.mailDomain -}}
+{{- .Values.directory.mailDomain -}}
+{{- else -}}
+{{- $parts := list -}}
+{{- range (splitList "," .Values.directory.suffix) -}}
+{{- $parts = append $parts (trimPrefix "dc=" (trim .)) -}}
+{{- end -}}
+{{- join "." $parts -}}
+{{- end -}}
+{{- end -}}

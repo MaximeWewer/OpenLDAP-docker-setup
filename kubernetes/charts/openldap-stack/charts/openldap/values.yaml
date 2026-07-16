@@ -201,23 +201,105 @@ replication:
   seedOnOrdinalZeroOnly: true
 
 # =============================================================================
-# Users / groups / ppolicy templates (PR 4)
+# openldap-cli — used by all sync Jobs (ppolicy, users, groups) as Helm
+# post-install / post-upgrade hooks. CLI + kubectl are downloaded on the fly
+# from GitHub / dl.k8s.io so no custom image build is required.
 # =============================================================================
-# Each list entry becomes an idempotent `openldap-cli` Job invocation
-# (post-install / post-upgrade hook). Existing entries are re-applied with
-# `user modify` on upgrade; passwords are generated in-cluster and stored in
-# per-user Secrets or ExternalSecret refs.
-users: []
-groups: []
+cli:
+  image:
+    repository: alpine
+    tag: "3.19"
+    pullPolicy: IfNotPresent
+  version: "v2026.6.3"
+  downloadUrl: "https://github.com/MaximeWewer/openldap-cli/releases/download"
+  kubectlVersion: "v1.29.4"
+
+  # Wait for LDAP to be reachable before running sync scripts (Job startup).
+  waitForLdap:
+    timeoutSeconds: 180
+    intervalSeconds: 3
+
+  # Job resource requests / limits.
+  resources:
+    requests: { cpu: 50m, memory: 64Mi }
+    limits:   { cpu: 500m, memory: 256Mi }
+
+# =============================================================================
+# Password policies (ppolicy templates under ou=policies,<suffix>)
+# =============================================================================
+# Applied via `openldap-cli ppolicy set` (idempotent — creates or updates).
+# Fields map 1:1 to the CLI flags — every entry key becomes `--<key>`.
+# The chart-managed default policy referenced by ppolicy.defaultPolicyRDN
+# (see the ppolicy section above) is NOT auto-created — declare it here
+# too if you want the sync Job to manage it.
 policies: []
+# Example:
+#   policies:
+#     - cn: defaultppolicy
+#       min-length: 12
+#       max-age: 7776000            # 90 days
+#       expire-warning: 604800      # 7 days
+#       in-history: 5
+#       max-failure: 5
+#       lockout-duration: 1800      # 30 min
+#       lockout: true
+#       check-quality: 2
+#       must-change: false
+
+# =============================================================================
+# Users
+# =============================================================================
+# Applied via `openldap-cli user add` / `user set` (create-or-update).
+# Passwords are auto-generated per user unless `existingSecret` is set.
+# Generated passwords are stored in a Secret named
+#   `<release>-openldap-user-<uid>`
+# with key `password`. The Secret carries the label
+#   openldap.stack/user=<uid>
+# so external systems can watch/list them.
+users: []
+# Example:
+#   users:
+#     - uid: alice
+#       givenName: Alice
+#       sn: Wonderland
+#       mail: alice@example.org              # optional (defaults to <uid>@<mail_domain>)
+#       displayName: "Alice Wonderland"      # optional
+#       policy: defaultppolicy               # optional (ppolicy assign)
+#       existingSecret: ""                   # optional — Secret carrying `password` key
+#       # extra: any k=v pair below `attrs` is passed to `user set` verbatim
+#       attrs:
+#         telephoneNumber: "+33-1-00-00-00-00"
+#         title: "Engineer"
+#     - uid: bob
+#       givenName: Bob
+#       sn: Builder
 
 # What happens when a user is removed from the values.yaml on upgrade.
 #   delete -> `openldap-cli user delete`
-#   lock   -> `openldap-cli policy lock` (pwdAccountLockedTime)
+#   lock   -> `openldap-cli user set <uid> pwdAccountLockedTime 000001010000Z`
 onUserRemove: delete
 
 # =============================================================================
-# Secrets backend (PR 4)
+# Groups (groupOfNames — each group MUST have ≥ 1 member per LDAP schema)
+# =============================================================================
+# Applied via `openldap-cli group create` (initial) then reconciled with
+# `group add-member` / `group remove-member`. `members` lists user UIDs;
+# they are translated to full DNs at sync time using values.userOU.
+groups: []
+# Example:
+#   groups:
+#     - cn: devs
+#       description: Development team
+#       members: [alice, bob]
+#     - cn: admins
+#       description: Administrators
+#       members: [alice]
+
+# Removed groups: same knob as users.
+onGroupRemove: delete
+
+# =============================================================================
+# Secrets backend for auto-generated per-user passwords
 # =============================================================================
 secrets:
   # kubernetes | external-secrets

@@ -1,0 +1,3 @@
+{{- if .Values.groups -}}
+{{ include "openldap.syncJob" (dict "context" . "name" "groups" "script" "groups.sh" "weight" "15") }}
+{{- end }}

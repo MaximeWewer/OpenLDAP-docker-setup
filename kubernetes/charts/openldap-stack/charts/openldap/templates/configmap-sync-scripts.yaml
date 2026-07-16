@@ -1,0 +1,356 @@
+{{- /*
+Shell scripts used by the sync Jobs. All three (ppolicy / users / groups)
+share the same base image (alpine) and the same tooling boot: apk install,
+download openldap-cli + kubectl, then run one of the scripts below.
+
+Each script is idempotent — safe to re-run on every `helm upgrade`.
+*/ -}}
+{{- if or .Values.users .Values.groups .Values.policies -}}
+{{- $suffix := .Values.directory.suffix -}}
+{{- $userOU := "ou=users" -}}
+{{- $groupOU := "ou=groups" -}}
+{{- $policyOU := "ou=policies" -}}
+{{- $mailDomain := printf "%s.%s" (index (splitList "," $suffix) 0 | trimPrefix "dc=") (index (splitList "," $suffix) 1 | trimPrefix "dc=") -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "openldap.fullname" . }}-sync-scripts
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "openldap.labels" . | nindent 4 }}
+    app.kubernetes.io/component: sync
+data:
+
+  # ---------------------------------------------------------------------------
+  # common.sh — sourced by every sync script.
+  #   * installs runtime tools (openldap-cli, kubectl, curl, jq)
+  #   * writes ~/.openldap-cli.yaml with the release's admin binding
+  #   * waits for LDAP to accept binds
+  # ---------------------------------------------------------------------------
+  common.sh: |
+    #!/bin/sh
+    set -eu
+
+    LOG() { printf '[sync] %s\n' "$*"; }
+    DIE() { printf '[sync] ERROR: %s\n' "$*" >&2; exit 1; }
+
+    : "${LDAP_URL:?}"; : "${LDAP_BASE_DN:?}"; : "${LDAP_BIND_DN:?}"
+    : "${LDAP_USER_OU:?}"; : "${LDAP_GROUP_OU:?}"; : "${LDAP_POLICY_OU:?}"
+    : "${LDAP_MAIL_DOMAIN:?}"; : "${CLI_VERSION:?}"; : "${CLI_DOWNLOAD_URL:?}"
+    : "${KUBECTL_VERSION:?}"
+    [ -f /secrets/admin-password ] || DIE "admin password missing at /secrets/admin-password"
+    LDAP_BIND_PW="$(cat /secrets/admin-password)"; export LDAP_BIND_PW
+
+    if ! command -v openldap-cli >/dev/null 2>&1; then
+      LOG "Installing tooling (apk + openldap-cli ${CLI_VERSION} + kubectl ${KUBECTL_VERSION})"
+      # Retry apk — mirrors are occasionally slow / transiently unreachable.
+      APK_TRIES=0
+      until apk add --no-cache curl ca-certificates jq openssl >/dev/null 2>&1; do
+        APK_TRIES=$((APK_TRIES + 1))
+        [ "$APK_TRIES" -ge 5 ] && DIE "apk add failed after 5 attempts"
+        LOG "apk add: transient failure (try ${APK_TRIES}/5), retrying in 5s"
+        sleep 5
+      done
+      TARBALL="openldap-cli_${CLI_VERSION}_linux_amd64.tar.gz"
+      curl --retry 3 --retry-delay 3 -fsSL "${CLI_DOWNLOAD_URL}/${CLI_VERSION}/${TARBALL}" -o /tmp/cli.tgz
+      tar -xzf /tmp/cli.tgz -C /usr/local/bin openldap-cli
+      chmod +x /usr/local/bin/openldap-cli
+      curl --retry 3 --retry-delay 3 -fsSL "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/amd64/kubectl" -o /usr/local/bin/kubectl
+      chmod +x /usr/local/bin/kubectl
+      rm -f /tmp/cli.tgz
+    fi
+
+    # Prefer flags + env over the config file (LDAP_* env vars are honoured
+    # natively by the CLI). Still write a config file so future ad-hoc `kubectl
+    # exec` sessions in the Job's pod work without env plumbing.
+    umask 077
+    mkdir -p /root
+    cat > /root/.openldap-cli.yaml <<EOF
+    default: helm
+    profiles:
+      helm:
+        url: ${LDAP_URL}
+        base_dn: ${LDAP_BASE_DN}
+        bind_dn: ${LDAP_BIND_DN}
+        user_ou: ${LDAP_USER_OU}
+        group_ou: ${LDAP_GROUP_OU}
+        policy_ou: ${LDAP_POLICY_OU}
+        mail_domain: ${LDAP_MAIL_DOMAIN}
+    EOF
+
+    wait_for_ldap() {
+      end=$(( $(date +%s) + ${WAIT_TIMEOUT_SECONDS:-180} ))
+      while [ "$(date +%s)" -lt "$end" ]; do
+        if openldap-cli whoami >/dev/null 2>&1; then
+          LOG "LDAP reachable, bind OK"
+          return 0
+        fi
+        sleep "${WAIT_INTERVAL_SECONDS:-3}"
+      done
+      DIE "LDAP not reachable within ${WAIT_TIMEOUT_SECONDS:-180}s"
+    }
+
+    # -------------------------------------------------------------------------
+    # Secret helpers (backend=kubernetes).
+    # -------------------------------------------------------------------------
+    secret_name_for_user() { printf '%s-user-%s' "${RELEASE_FULLNAME}" "$1"; }
+
+    secret_password_exists() {
+      kubectl -n "${RELEASE_NAMESPACE}" get secret "$(secret_name_for_user "$1")" >/dev/null 2>&1
+    }
+
+    secret_password_get() {
+      kubectl -n "${RELEASE_NAMESPACE}" get secret "$(secret_name_for_user "$1")" \
+        -o jsonpath='{.data.password}' 2>/dev/null | base64 -d
+    }
+
+    secret_password_put() {
+      local uid="$1" pw="$2" name
+      name="$(secret_name_for_user "$uid")"
+      kubectl -n "${RELEASE_NAMESPACE}" create secret generic "$name" \
+        --from-literal=password="$pw" \
+        --dry-run=client -o yaml \
+        | kubectl label -f - --local -o yaml \
+            "app.kubernetes.io/managed-by=Helm" \
+            "app.kubernetes.io/component=user-credentials" \
+            "app.kubernetes.io/part-of=openldap-stack" \
+            "openldap.stack/release=${RELEASE_NAME}" \
+            "openldap.stack/user=${uid}" \
+        | kubectl apply -f - >/dev/null
+    }
+
+    secret_password_delete() {
+      kubectl -n "${RELEASE_NAMESPACE}" delete secret "$(secret_name_for_user "$1")" \
+        --ignore-not-found=true >/dev/null
+    }
+
+    gen_password() { openssl rand -base64 24 | tr -d '=/+' | head -c 24; }
+
+  # ---------------------------------------------------------------------------
+  # ppolicy.sh — reconciles ppolicy templates under ou=policies.
+  # ---------------------------------------------------------------------------
+  ppolicy.sh: |
+    #!/bin/sh
+    set -eu
+    . /scripts/common.sh
+    wait_for_ldap
+
+    [ -f /spec/policies.json ] || { LOG "no policies to reconcile"; exit 0; }
+    COUNT=$(jq 'length' /spec/policies.json)
+    LOG "reconciling ${COUNT} ppolicy template(s)"
+
+    i=0
+    while [ "$i" -lt "$COUNT" ]; do
+      NAME=$(jq -r ".[$i].cn" /spec/policies.json)
+      [ -n "$NAME" ] && [ "$NAME" != "null" ] || DIE "policy #$i has no cn"
+
+      # Build --flag=value list from every remaining key.
+      FLAGS=$(jq -r --argjson i "$i" '
+        .[$i] | to_entries | map(select(.key != "cn"))
+              | map("--" + .key + "=" + (.value | tostring)) | join(" ")
+      ' /spec/policies.json)
+
+      LOG "ppolicy set ${NAME} ${FLAGS}"
+      # shellcheck disable=SC2086
+      openldap-cli ppolicy set "${NAME}" ${FLAGS}
+      i=$((i + 1))
+    done
+    LOG "ppolicy sync done"
+
+  # ---------------------------------------------------------------------------
+  # users.sh — reconciles users under ou=users.
+  #   * create-or-update every user in values.users
+  #   * store generated passwords in per-user Secrets (kubernetes backend)
+  #   * on removal from values.users, either delete or lock based on
+  #     onUserRemove
+  # ---------------------------------------------------------------------------
+  users.sh: |
+    #!/bin/sh
+    set -eu
+    . /scripts/common.sh
+    wait_for_ldap
+
+    [ -f /spec/users.json ] || { LOG "no users to reconcile"; }
+    COUNT=$(jq 'length' /spec/users.json 2>/dev/null || echo 0)
+    LOG "reconciling ${COUNT} user(s)"
+
+    # Track which uids we own (from values) — used later for drift cleanup.
+    DECLARED=/tmp/declared-users.txt
+    : > "$DECLARED"
+
+    i=0
+    while [ "$i" -lt "$COUNT" ]; do
+      UID_VAL=$(jq -r ".[$i].uid" /spec/users.json)
+      [ -n "$UID_VAL" ] && [ "$UID_VAL" != "null" ] || DIE "user #$i has no uid"
+      echo "$UID_VAL" >> "$DECLARED"
+
+      GIVEN=$(jq -r ".[$i].givenName // empty" /spec/users.json)
+      SN=$(jq -r ".[$i].sn // empty" /spec/users.json)
+      MAIL=$(jq -r ".[$i].mail // empty" /spec/users.json)
+      DISPLAY=$(jq -r ".[$i].displayName // empty" /spec/users.json)
+      POLICY=$(jq -r ".[$i].policy // empty" /spec/users.json)
+      EXISTING_SECRET=$(jq -r ".[$i].existingSecret // empty" /spec/users.json)
+
+      # Extra attrs to pass as repeated `--set k=v`.
+      EXTRA_KV=$(jq -r --argjson i "$i" '
+        (.[$i].attrs // {}) | to_entries[] | (.key + "=" + (.value | tostring))
+      ' /spec/users.json 2>/dev/null || true)
+
+      if openldap-cli user info "$UID_VAL" >/dev/null 2>&1; then
+        LOG "user ${UID_VAL}: exists — reconciling attributes"
+        [ -n "$GIVEN" ]   && openldap-cli user set "$UID_VAL" givenName "$GIVEN"
+        [ -n "$SN" ]      && openldap-cli user set "$UID_VAL" sn "$SN"
+        [ -n "$MAIL" ]    && openldap-cli user set "$UID_VAL" mail "$MAIL"
+        [ -n "$DISPLAY" ] && openldap-cli user set "$UID_VAL" displayName "$DISPLAY"
+        for kv in $EXTRA_KV; do
+          K=${kv%%=*}; V=${kv#*=}
+          openldap-cli user set "$UID_VAL" "$K" "$V"
+        done
+      else
+        LOG "user ${UID_VAL}: creating"
+        # Determine password source.
+        if [ -n "$EXISTING_SECRET" ]; then
+          PW=$(kubectl -n "${RELEASE_NAMESPACE}" get secret "$EXISTING_SECRET" \
+                 -o jsonpath='{.data.password}' | base64 -d)
+          [ -n "$PW" ] || DIE "existingSecret ${EXISTING_SECRET} has no data.password"
+        elif secret_password_exists "$UID_VAL"; then
+          # A Secret survived from a previous install; reuse it.
+          PW=$(secret_password_get "$UID_VAL")
+        else
+          PW=$(gen_password)
+        fi
+
+        # Build `--set k=v` pairs — repeated flag, space-separated args.
+        set -- "$UID_VAL" --password "$PW"
+        [ -n "$GIVEN" ]   && set -- "$@" --set "givenName=$GIVEN"
+        [ -n "$SN" ]      && set -- "$@" --set "sn=$SN"
+        [ -n "$MAIL" ]    && set -- "$@" --set "mail=$MAIL"
+        [ -n "$DISPLAY" ] && set -- "$@" --set "displayName=$DISPLAY"
+        for kv in $EXTRA_KV; do
+          set -- "$@" --set "$kv"
+        done
+        openldap-cli user add "$@"
+
+        # Persist password ONLY when the chart owns it (no existingSecret).
+        if [ -z "$EXISTING_SECRET" ]; then
+          secret_password_put "$UID_VAL" "$PW"
+        fi
+      fi
+
+      if [ -n "$POLICY" ]; then
+        LOG "user ${UID_VAL}: ppolicy assign ${POLICY}"
+        openldap-cli ppolicy assign "$UID_VAL" "$POLICY"
+      fi
+
+      i=$((i + 1))
+    done
+
+    # Drift: any user with the label openldap.stack/release=${RELEASE_NAME}
+    # (i.e. previously created by this chart) that is no longer declared →
+    # delete or lock per onUserRemove.
+    LOG "checking drift — onUserRemove=${ON_USER_REMOVE}"
+    KNOWN=$(kubectl -n "${RELEASE_NAMESPACE}" get secrets \
+              -l "openldap.stack/release=${RELEASE_NAME},app.kubernetes.io/component=user-credentials" \
+              -o jsonpath='{range .items[*]}{.metadata.labels.openldap\.stack/user}{"\n"}{end}' \
+              2>/dev/null | sort -u)
+    for uid in $KNOWN; do
+      if ! grep -Fxq "$uid" "$DECLARED"; then
+        case "$ON_USER_REMOVE" in
+          delete)
+            LOG "drift: deleting user ${uid} + its Secret"
+            openldap-cli user delete "$uid" || true
+            secret_password_delete "$uid"
+            ;;
+          lock)
+            LOG "drift: locking user ${uid} (pwdAccountLockedTime)"
+            openldap-cli user set "$uid" pwdAccountLockedTime 000001010000Z || true
+            ;;
+          *)
+            DIE "onUserRemove=${ON_USER_REMOVE}: expected delete|lock"
+            ;;
+        esac
+      fi
+    done
+    LOG "users sync done"
+
+  # ---------------------------------------------------------------------------
+  # groups.sh — reconciles groupOfNames entries under ou=groups.
+  # ---------------------------------------------------------------------------
+  groups.sh: |
+    #!/bin/sh
+    set -eu
+    . /scripts/common.sh
+    wait_for_ldap
+
+    [ -f /spec/groups.json ] || { LOG "no groups to reconcile"; exit 0; }
+    COUNT=$(jq 'length' /spec/groups.json)
+    LOG "reconciling ${COUNT} group(s)"
+
+    DECLARED=/tmp/declared-groups.txt
+    : > "$DECLARED"
+
+    i=0
+    while [ "$i" -lt "$COUNT" ]; do
+      CN=$(jq -r ".[$i].cn" /spec/groups.json)
+      [ -n "$CN" ] && [ "$CN" != "null" ] || DIE "group #$i has no cn"
+      echo "$CN" >> "$DECLARED"
+
+      MEMBERS=$(jq -r ".[$i].members[]?" /spec/groups.json)
+      [ -n "$MEMBERS" ] || DIE "group ${CN} has no members (groupOfNames requires ≥ 1)"
+
+      DESC=$(jq -r ".[$i].description // empty" /spec/groups.json)
+
+      if openldap-cli group info "$CN" >/dev/null 2>&1; then
+        LOG "group ${CN}: exists — reconciling members"
+        # Current members: extract UID (RDN value) from each member DN
+        # (member: cn=alice,ou=users,...).
+        CURRENT=$(openldap-cli group info "$CN" -o json 2>/dev/null \
+          | jq -r '.attrs.member[]? // empty' \
+          | sed -n 's/^cn=\([^,]*\),.*/\1/p' \
+          | sort -u)
+        DECLARED_SET=$(printf '%s\n' $MEMBERS | sort -u)
+        TO_ADD=$(comm -23 <(printf '%s\n' "$DECLARED_SET") <(printf '%s\n' "$CURRENT") || true)
+        TO_REM=$(comm -13 <(printf '%s\n' "$DECLARED_SET") <(printf '%s\n' "$CURRENT") || true)
+        for u in $TO_ADD; do
+          LOG "  add-member ${u}"
+          openldap-cli group add-member "$CN" "$u"
+        done
+        for u in $TO_REM; do
+          LOG "  remove-member ${u}"
+          openldap-cli group remove-member "$CN" "$u"
+        done
+      else
+        LOG "group ${CN}: creating with ${MEMBERS}"
+        # `group create` requires at least one --member; extra members added after.
+        FIRST=$(printf '%s\n' $MEMBERS | head -n 1)
+        REST=$(printf '%s\n' $MEMBERS | tail -n +2)
+        openldap-cli group create "$CN" --member "$FIRST"
+        for u in $REST; do
+          openldap-cli group add-member "$CN" "$u"
+        done
+      fi
+
+      # NOTE: description updates on existing groups are skipped — the CLI's
+      # `entry set` isn't in the v2026.6.3 binary. Set the description via
+      # `openldap-cli` future revision or `ldapmodify` if you must change it.
+
+      i=$((i + 1))
+    done
+
+    LOG "checking drift — onGroupRemove=${ON_GROUP_REMOVE}"
+    # groups list text form: one CN per line, plus a trailing "(N groups)" tally.
+    KNOWN=$(openldap-cli groups list 2>/dev/null | grep -v '^(' | grep -v '^$' || true)
+    for cn in $KNOWN; do
+      if ! grep -Fxq "$cn" "$DECLARED"; then
+        case "$ON_GROUP_REMOVE" in
+          delete)
+            LOG "drift: deleting group ${cn}"
+            openldap-cli group delete "$cn" || true
+            ;;
+          keep) : ;;
+          *) DIE "onGroupRemove=${ON_GROUP_REMOVE}: expected delete|keep" ;;
+        esac
+      fi
+    done
+    LOG "groups sync done"
+{{- end }}

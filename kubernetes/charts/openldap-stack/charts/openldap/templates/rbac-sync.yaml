@@ -1,0 +1,58 @@
+{{- /*
+RBAC for the users / groups / ppolicy sync Jobs.
+
+The sync Jobs need to:
+  - create/update/read/delete Secrets in the release namespace (per-user
+    passwords storage when secrets.backend=kubernetes);
+  - list Secrets (for drift detection: find <release>-openldap-user-*
+    Secrets whose user is no longer in values.users → clean them up
+    alongside the LDAP entry).
+
+Nothing outside the release namespace is granted; cluster-scoped access
+is never needed (external-secrets — PR-later — will delegate to ESO's
+own controller SA rather than expanding this Role).
+*/ -}}
+{{- if or .Values.users .Values.groups .Values.policies -}}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ include "openldap.fullname" . }}-sync
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "openldap.labels" . | nindent 4 }}
+    app.kubernetes.io/component: sync
+automountServiceAccountToken: true
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "openldap.fullname" . }}-sync
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "openldap.labels" . | nindent 4 }}
+    app.kubernetes.io/component: sync
+rules:
+  - apiGroups: [""]
+    resources: [secrets]
+    verbs: [get, list, create, update, patch, delete]
+  - apiGroups: [""]
+    resources: [pods]
+    verbs: [get, list]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "openldap.fullname" . }}-sync
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "openldap.labels" . | nindent 4 }}
+    app.kubernetes.io/component: sync
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "openldap.fullname" . }}-sync
+    namespace: {{ .Release.Namespace }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "openldap.fullname" . }}-sync
+{{- end }}
