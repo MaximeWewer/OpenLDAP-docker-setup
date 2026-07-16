@@ -31,3 +31,7 @@ dependencies:
     version: 0.1.0
     repository: "file://charts/phpldapadmin"
     condition: phpldapadmin.enabled
+  - name: self-service-password
+    version: 0.1.0
+    repository: "file://charts/self-service-password"
+    condition: self-service-password.enabled

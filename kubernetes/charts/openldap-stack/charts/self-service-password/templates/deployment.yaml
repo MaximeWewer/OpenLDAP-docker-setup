@@ -1,0 +1,109 @@
+{{- $fullName := include "ssp.fullname" . -}}
+{{- $bindSec := .Values.ldap.bind.existingSecret -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $fullName }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "ssp.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "ssp.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "ssp.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: ui
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        checksum/secret: {{ include (print $.Template.BasePath "/secret.yaml") . | sha256sum }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      serviceAccountName: {{ include "ssp.serviceAccountName" . }}
+      automountServiceAccountToken: {{ .Values.serviceAccount.automountServiceAccountToken }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.topologySpreadConstraints }}
+      topologySpreadConstraints:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: ssp
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: 80
+              protocol: TCP
+          env:
+            - name: SSP_KEYPHRASE
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "ssp.keyphraseSecretName" . }}
+                  key: keyphrase
+            {{- if $bindSec }}
+            - name: SSP_LDAP_BINDPW
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $bindSec }}
+                  key: {{ .Values.ldap.bind.secretKey | quote }}
+            {{- end }}
+            {{- if .Values.mail.smtpPasswordExistingSecret }}
+            - name: SSP_SMTP_PW
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.mail.smtpPasswordExistingSecret }}
+                  key: {{ .Values.mail.smtpPasswordKey | quote }}
+            {{- end }}
+          livenessProbe:
+            {{- toYaml .Values.livenessProbe | nindent 12 }}
+          readinessProbe:
+            {{- toYaml .Values.readinessProbe | nindent 12 }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - name: config
+              mountPath: /var/www/conf/config.inc.local.php
+              subPath: config.inc.local.php
+              readOnly: true
+            {{- if .Values.ldap.tls.caExistingSecret }}
+            - name: ldap-ca
+              mountPath: /etc/ssl/ldap
+              readOnly: true
+            {{- end }}
+      volumes:
+        - name: config
+          configMap:
+            name: {{ $fullName }}
+            defaultMode: 0444
+        {{- if .Values.ldap.tls.caExistingSecret }}
+        - name: ldap-ca
+          secret:
+            secretName: {{ .Values.ldap.tls.caExistingSecret }}
+            items:
+              - key: ca.crt
+                path: ca.crt
+            defaultMode: 0444
+        {{- end }}

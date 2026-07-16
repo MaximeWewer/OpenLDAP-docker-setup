@@ -1,0 +1,185 @@
+# =============================================================================
+# self-service-password subchart — values
+# =============================================================================
+
+image:
+  repository: ltbproject/self-service-password
+  tag: "1.7.3"
+  pullPolicy: IfNotPresent
+
+replicaCount: 1
+
+# =============================================================================
+# LDAP connection
+# =============================================================================
+# Host defaults to `<release>-openldap.<ns>.svc.cluster.local` when the
+# openldap subchart is installed under the same release.
+ldap:
+  host: ""                          # auto if empty
+  port: 389
+  # ldap | ldaps | starttls
+  connection: ldap
+  baseDN: dc=example,dc=org
+  loginAttribute: uid
+
+  # Bind account SSP uses to look up users. Needs `read` on the user subtree.
+  # Recommended: declare a matching `openldap.users` entry with uid=ssp so
+  # the openldap sync Job creates the user + password Secret automatically,
+  # then set bind.existingSecret to that Secret name (`<release>-openldap-user-ssp`).
+  bind:
+    dn: "cn=ssp,ou=users,dc=example,dc=org"
+    existingSecret: ""              # Secret carrying the bind password
+    secretKey: password             # Key inside the Secret (matches openldap sync default)
+
+  # StartTLS / LDAPS trust anchor when talking to slapd over TLS. Pointing
+  # at the openldap chart's TLS Secret (backend=job/cert-manager) is the
+  # common case.
+  tls:
+    caExistingSecret: ""            # Secret with a `ca.crt` key
+    reqcert: "hard"                 # hard | try | allow | never
+
+# =============================================================================
+# General config (config.inc.local.php)
+# =============================================================================
+general:
+  # Server-side keyphrase used for token generation. Auto-generated + stored
+  # in <release>-self-service-password-keyphrase and preserved across upgrades.
+  # Override with an existingSecret carrying key `keyphrase`.
+  keyphraseExistingSecret: ""
+
+  debug: false
+  language: "en"
+  allowedLanguages: ["en", "fr"]
+
+# =============================================================================
+# Password policy — mirrors self-service-password's config_ppolicy.
+# =============================================================================
+passwordPolicy:
+  hash: "auto"                      # auto | SSHA | SHA | SMD5 | MD5 | CRYPT | clear
+  minLength: 12
+  maxLength: 64
+  minLower: 1
+  minUpper: 1
+  minDigit: 1
+  minSpecial: 1
+  specialChars: "^a-zA-Z0-9"
+  noSpecialAtEnds: true
+  noReuse: true
+  diffLastMinChars: 2
+  showPolicy: "always"              # never | always | onerror
+  showPolicyPos: "above"            # above | below
+  usePwnedPasswords: false
+
+# =============================================================================
+# Feature toggles (disabled by default — mail SMTP wiring in extraConfig)
+# =============================================================================
+useTokens: false
+useQuestions: false
+useSms: false
+
+# =============================================================================
+# Mail (optional — populate when useTokens=true and you want email links)
+# =============================================================================
+mail:
+  from: ""
+  fromName: ""
+  smtpHost: ""
+  smtpPort: 587
+  smtpAuth: false
+  smtpUser: ""
+  smtpSecure: "tls"                 # "" | tls | ssl
+  # SMTP password Secret + key (Secret pre-created, or leave empty).
+  smtpPasswordExistingSecret: ""
+  smtpPasswordKey: password
+
+# =============================================================================
+# Extra config — raw PHP lines appended to config.inc.local.php verbatim.
+# Use this escape hatch for anything the values above don't expose.
+# =============================================================================
+extraConfig: ""
+# Example:
+#   extraConfig: |
+#     $logo = "images/ltb-logo.png";
+#     $custom_css = "css/custom.css";
+
+# =============================================================================
+# Networking
+# =============================================================================
+service:
+  type: ClusterIP
+  port: 80
+  annotations: {}
+
+# =============================================================================
+# Ingress — HTTP UI, same shape as the phpldapadmin subchart.
+# =============================================================================
+ingress:
+  enabled: false
+  mode: ingress-nginx               # ingress-nginx | gateway-api
+  host: ""
+
+  tls:
+    enabled: false
+    certManager:
+      enabled: false
+      issuerRef:
+        name: ""
+        kind: ClusterIssuer
+    existingSecret: ""
+
+  ingressNginx:
+    className: nginx
+    annotations: {}
+
+  gatewayAPI:
+    gatewayClassName: ""
+    gatewayName: ""
+    gatewayNamespace: ""
+    listenerName: https
+    port: 443
+
+# =============================================================================
+# Hardening
+# =============================================================================
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+  automountServiceAccountToken: false
+
+podSecurityContext:
+  seccompProfile:
+    type: RuntimeDefault
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: false
+  capabilities:
+    drop: [ALL]
+    # LTB's Apache/PHP-FPM image starts as root, drops to www-data.
+    add: [CHOWN, SETUID, SETGID, DAC_OVERRIDE, NET_BIND_SERVICE]
+
+resources:
+  requests: { cpu: 50m, memory: 128Mi }
+  limits:   { cpu: 500m, memory: 512Mi }
+
+podAnnotations: {}
+podLabels: {}
+nodeSelector: {}
+tolerations: []
+affinity: {}
+topologySpreadConstraints: []
+
+livenessProbe:
+  httpGet:
+    path: /
+    port: http
+  initialDelaySeconds: 15
+  periodSeconds: 30
+
+readinessProbe:
+  httpGet:
+    path: /
+    port: http
+  initialDelaySeconds: 5
+  periodSeconds: 10

@@ -1,0 +1,40 @@
+Self Service Password {{ .Chart.AppVersion }} installed as {{ include "ssp.fullname" . }} in namespace {{ .Release.Namespace }}.
+
+LDAP target: {{ include "ssp.ldapUrl" . }}
+Base DN:     {{ .Values.ldap.baseDN }}
+Login attr:  {{ .Values.ldap.loginAttribute }}
+Bind DN:     {{ .Values.ldap.bind.dn }}
+
+Access:
+
+{{- if .Values.ingress.enabled }}
+  {{ ternary "https" "http" .Values.ingress.tls.enabled }}://{{ .Values.ingress.host }}
+{{- else }}
+  kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "ssp.fullname" . }} 8088:{{ .Values.service.port }}
+  open http://localhost:8088
+{{- end }}
+
+Users authenticate with `{{ .Values.ldap.loginAttribute }}` + current password and can set a
+new one. SSP performs the change over the user's own bind, so no extra
+ACL beyond the default `by self write` on userPassword is needed —
+provided you keep the `ldap.bind.dn` account able to search the tree.
+
+{{- if not .Values.ldap.bind.existingSecret }}
+
+WARNING: `ldap.bind.existingSecret` is empty. SSP will boot with an empty
+bind password and search operations will fail. Point it at a Secret with
+key `{{ .Values.ldap.bind.secretKey }}` — the easiest path is to declare a
+matching entry under `openldap.users`:
+
+    openldap:
+      users:
+        - uid: ssp
+          givenName: Self
+          sn: Service
+          # openldap sync creates Secret <release>-openldap-user-ssp
+    self-service-password:
+      ldap:
+        bind:
+          dn: cn=ssp,ou=users,dc=example,dc=org
+          existingSecret: <release>-openldap-user-ssp
+{{- end }}

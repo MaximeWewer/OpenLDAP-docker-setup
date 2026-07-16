@@ -1,0 +1,23 @@
+apiVersion: v2
+name: self-service-password
+description: |
+  LDAP Tool Box Self Service Password — end-user password change / reset UI.
+  Config file (config.inc.local.php) rendered from values; binds against
+  the sibling openldap subchart's Service by default.
+type: application
+version: 0.1.0
+appVersion: "1.7.3"
+kubeVersion: ">=1.27.0-0"
+keywords:
+  - self-service-password
+  - ssp
+  - ldap
+  - password
+  - reset
+home: https://github.com/MaximeWewer/OpenLDAP-docker-setup
+sources:
+  - https://github.com/MaximeWewer/OpenLDAP-docker-setup
+  - https://github.com/ltb-project/self-service-password
+maintainers:
+  - name: MaximeWewer
+    url: https://github.com/MaximeWewer

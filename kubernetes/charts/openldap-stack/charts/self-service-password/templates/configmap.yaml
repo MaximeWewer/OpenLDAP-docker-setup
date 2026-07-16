@@ -1,0 +1,91 @@
+{{- /*
+config.inc.local.php — dropped into /var/www/conf on the SSP image.
+Bind password + keyphrase + SMTP password are NOT embedded here; the
+Deployment templates them into PHP variables via env-var-driven includes
+(config.inc.local.php reads them with getenv()).
+*/ -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "ssp.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "ssp.labels" . | nindent 4 }}
+data:
+  config.inc.local.php: |
+    <?php
+    # Managed by Helm — do not edit by hand.
+
+    # ---------------------------------------------------------------------------
+    # LDAP connection
+    # ---------------------------------------------------------------------------
+    $ldap_url = {{ include "ssp.ldapUrl" . | quote }};
+    {{- if eq .Values.ldap.connection "starttls" }}
+    $ldap_starttls = true;
+    {{- end }}
+    {{- if .Values.ldap.tls.caExistingSecret }}
+    putenv("LDAPTLS_REQCERT={{ .Values.ldap.tls.reqcert }}");
+    putenv("LDAPTLS_CACERT=/etc/ssl/ldap/ca.crt");
+    {{- end }}
+    $ldap_binddn = {{ .Values.ldap.bind.dn | quote }};
+    $ldap_bindpw = getenv("SSP_LDAP_BINDPW") ?: "";
+    $ldap_base = {{ .Values.ldap.baseDN | quote }};
+    $ldap_login_attribute = {{ .Values.ldap.loginAttribute | quote }};
+
+    # ---------------------------------------------------------------------------
+    # General
+    # ---------------------------------------------------------------------------
+    $keyphrase = getenv("SSP_KEYPHRASE") ?: "insecure-fallback-do-not-use";
+    $debug = {{ ternary "true" "false" .Values.general.debug }};
+    $lang = {{ .Values.general.language | quote }};
+    $allowed_lang = array({{ range $i, $l := .Values.general.allowedLanguages }}{{ if $i }},{{ end }}{{ $l | quote }}{{ end }});
+
+    # ---------------------------------------------------------------------------
+    # Password policy
+    # ---------------------------------------------------------------------------
+    $hash = {{ .Values.passwordPolicy.hash | quote }};
+    $pwd_min_length = {{ int .Values.passwordPolicy.minLength }};
+    $pwd_max_length = {{ int .Values.passwordPolicy.maxLength }};
+    $pwd_min_lower = {{ int .Values.passwordPolicy.minLower }};
+    $pwd_min_upper = {{ int .Values.passwordPolicy.minUpper }};
+    $pwd_min_digit = {{ int .Values.passwordPolicy.minDigit }};
+    $pwd_min_special = {{ int .Values.passwordPolicy.minSpecial }};
+    $pwd_special_chars = {{ .Values.passwordPolicy.specialChars | quote }};
+    $pwd_no_special_at_ends = {{ ternary "true" "false" .Values.passwordPolicy.noSpecialAtEnds }};
+    $pwd_no_reuse = {{ ternary "true" "false" .Values.passwordPolicy.noReuse }};
+    $pwd_diff_last_min_chars = {{ int .Values.passwordPolicy.diffLastMinChars }};
+    $pwd_show_policy = {{ .Values.passwordPolicy.showPolicy | quote }};
+    $pwd_show_policy_pos = {{ .Values.passwordPolicy.showPolicyPos | quote }};
+    $use_pwnedpasswords = {{ ternary "true" "false" .Values.passwordPolicy.usePwnedPasswords }};
+
+    # ---------------------------------------------------------------------------
+    # Feature toggles
+    # ---------------------------------------------------------------------------
+    $use_tokens    = {{ ternary "true" "false" .Values.useTokens }};
+    $use_questions = {{ ternary "true" "false" .Values.useQuestions }};
+    $use_sms       = {{ ternary "true" "false" .Values.useSms }};
+
+    # ---------------------------------------------------------------------------
+    # Mail (only meaningful when useTokens=true)
+    # ---------------------------------------------------------------------------
+    {{- if .Values.mail.from }}
+    $mail_from = {{ .Values.mail.from | quote }};
+    $mail_from_name = {{ .Values.mail.fromName | quote }};
+    $mail_protocol = 'smtp';
+    $mail_smtp_host = {{ .Values.mail.smtpHost | quote }};
+    $mail_smtp_port = {{ int .Values.mail.smtpPort }};
+    $mail_smtp_auth = {{ ternary "true" "false" .Values.mail.smtpAuth }};
+    $mail_smtp_user = {{ .Values.mail.smtpUser | quote }};
+    $mail_smtp_pass = getenv("SSP_SMTP_PW") ?: "";
+    $mail_smtp_secure = {{ .Values.mail.smtpSecure | quote }};
+    $mail_smtp_autotls = true;
+    {{- end }}
+
+    {{- with .Values.extraConfig }}
+
+    # ---------------------------------------------------------------------------
+    # extraConfig (values.extraConfig)
+    # ---------------------------------------------------------------------------
+    {{ . | nindent 4 }}
+    {{- end }}
+    ?>

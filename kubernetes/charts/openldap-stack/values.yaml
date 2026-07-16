@@ -32,6 +32,10 @@ phpldapadmin:
   #     enabled: true
   enabled: false
 
-# PR 9 — placeholder, not shipped yet.
-selfServicePassword:
+self-service-password:
+  # LTB Self Service Password. See
+  # kubernetes/charts/openldap-stack/charts/self-service-password/values.yaml
+  # for the full value tree. Enabling this requires a bind account in LDAP —
+  # declare it via openldap.users (uid: ssp) and pass its Secret name via
+  #   self-service-password.ldap.bind.existingSecret:
   enabled: false
