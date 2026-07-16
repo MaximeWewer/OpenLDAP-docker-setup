@@ -12,7 +12,7 @@ Nothing outside the release namespace is granted; cluster-scoped access
 is never needed (external-secrets integration delegates to ESO's own
 controller SA rather than expanding this Role).
 */ -}}
-{{- if or .Values.users .Values.groups .Values.policies .Values.backup.enabled .Values.accesslogPurgeJob.enabled (and .Values.tls.enabled (eq .Values.tls.backend "job")) -}}
+{{- if or .Values.users .Values.groups .Values.policies .Values.acls .Values.treeGrants .Values.overlays .Values.backup.enabled .Values.accesslogPurgeJob.enabled .Values.aclLintCronJob.enabled (and .Values.tls.enabled (eq .Values.tls.backend "job")) -}}
 apiVersion: v1
 kind: ServiceAccount
 metadata:
@@ -38,6 +38,13 @@ rules:
   - apiGroups: [""]
     resources: [pods]
     verbs: [get, list]
+  {{- if or .Values.acls .Values.treeGrants .Values.overlays }}
+  # State ConfigMap `<release>-openldap-sync-state` tracks acls / tree-grants /
+  # overlays across upgrades so drift removal knows what was previously applied.
+  - apiGroups: [""]
+    resources: [configmaps]
+    verbs: [get, list, create, update, patch]
+  {{- end }}
   {{- if and .Values.tls.enabled (eq .Values.tls.backend "job") .Values.tls.job.rollingRestartOnRenew }}
   # TLS renew CronJob (tls.backend=job) triggers `kubectl rollout restart`
   # on the StatefulSet to roll pods onto the new server cert.

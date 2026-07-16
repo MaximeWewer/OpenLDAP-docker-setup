@@ -1,0 +1,3 @@
+{{- if .Values.treeGrants -}}
+{{ include "openldap.syncJob" (dict "context" . "name" "tree-grants" "script" "tree-grants.sh" "weight" "9") }}
+{{- end }}

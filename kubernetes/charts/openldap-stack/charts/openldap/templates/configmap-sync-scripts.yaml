@@ -5,7 +5,7 @@ download openldap-cli + kubectl, then run one of the scripts below.
 
 Each script is idempotent — safe to re-run on every `helm upgrade`.
 */ -}}
-{{- if or .Values.users .Values.groups .Values.policies .Values.backup.enabled .Values.accesslogPurgeJob.enabled -}}
+{{- if or .Values.users .Values.groups .Values.policies .Values.acls .Values.treeGrants .Values.overlays .Values.backup.enabled .Values.accesslogPurgeJob.enabled .Values.aclLintCronJob.enabled -}}
 {{- $suffix := .Values.directory.suffix -}}
 {{- $userOU := "ou=users" -}}
 {{- $groupOU := "ou=groups" -}}
@@ -125,6 +125,49 @@ data:
     }
 
     gen_password() { openssl rand -base64 24 | tr -d '=/+' | head -c 24; }
+
+    # -------------------------------------------------------------------------
+    # cn=config bind — required by acls / tree-grants / overlays / acl-lint.
+    # Sourced only when the caller sets `NEED_CONFIG_BIND=1` to keep other
+    # scripts on the plain admin bind.
+    # -------------------------------------------------------------------------
+    load_config_bind() {
+      [ -f /secrets/config-admin-password ] \
+        || DIE "config admin password missing at /secrets/config-admin-password"
+      LDAP_CONFIG_BIND_DN="${LDAP_CONFIG_BIND_DN:-cn=adminconfig,cn=config}"
+      LDAP_CONFIG_BIND_PW="$(cat /secrets/config-admin-password)"
+      export LDAP_CONFIG_BIND_DN LDAP_CONFIG_BIND_PW
+    }
+
+    # -------------------------------------------------------------------------
+    # Chart state ConfigMap helpers — used by acls / tree-grants / overlays
+    # to track their previously-applied set across upgrades. Data key = phase
+    # name (acls | tree-grants | overlays).
+    # -------------------------------------------------------------------------
+    STATE_CM_NAME="${RELEASE_FULLNAME}-sync-state"
+
+    state_get() {
+      # $1 = data key; prints the JSON body (or "[]" if absent)
+      kubectl -n "${RELEASE_NAMESPACE}" get configmap "${STATE_CM_NAME}" \
+        -o "jsonpath={.data.$1}" 2>/dev/null | { read -r v; printf '%s' "${v:-[]}"; }
+    }
+
+    state_put() {
+      # $1 = data key, $2 = path to new JSON file
+      if ! kubectl -n "${RELEASE_NAMESPACE}" get configmap "${STATE_CM_NAME}" >/dev/null 2>&1; then
+        kubectl -n "${RELEASE_NAMESPACE}" create configmap "${STATE_CM_NAME}" \
+          --from-literal="$1=$(cat "$2")" >/dev/null
+        kubectl -n "${RELEASE_NAMESPACE}" label configmap "${STATE_CM_NAME}" \
+          --overwrite \
+          "app.kubernetes.io/managed-by=Helm" \
+          "app.kubernetes.io/component=sync-state" \
+          "app.kubernetes.io/part-of=openldap-stack" \
+          "openldap.stack/release=${RELEASE_NAME}" >/dev/null
+      else
+        kubectl -n "${RELEASE_NAMESPACE}" patch configmap "${STATE_CM_NAME}" \
+          --type=merge -p "$(jq -n --arg k "$1" --rawfile v "$2" '{data:{($k):$v}}')" >/dev/null
+      fi
+    }
 
   # ---------------------------------------------------------------------------
   # ppolicy.sh — reconciles ppolicy templates under ou=policies.
@@ -330,9 +373,15 @@ data:
         done
       fi
 
-      # NOTE: description updates on existing groups are skipped — the CLI's
-      # `entry set` isn't in the v2026.6.3 binary. Set the description via
-      # `openldap-cli` future revision or `ldapmodify` if you must change it.
+      # Description reconcile (CLI ≥ v2026.7.3).
+      if [ -n "$DESC" ]; then
+        CURRENT_DESC=$(openldap-cli group info "$CN" -o json 2>/dev/null \
+          | jq -r '.attrs.description[0]? // empty')
+        if [ "$CURRENT_DESC" != "$DESC" ]; then
+          LOG "  set description=${DESC}"
+          openldap-cli group set "$CN" description "$DESC"
+        fi
+      fi
 
       i=$((i + 1))
     done
@@ -412,4 +461,250 @@ data:
     # shellcheck disable=SC2086
     openldap-cli ops accesslog-purge ${ARGS}
     LOG "accesslog purge done"
+
+  # ---------------------------------------------------------------------------
+  # overlays.sh — reconciles overlays via `openldap-cli config overlay
+  # enable|disable`. Runs BEFORE ppolicy/users/groups so overlays enabled here
+  # (memberof, refint, ppolicy, …) are available when those jobs run.
+  # State is tracked in ConfigMap ${RELEASE}-openldap-sync-state key `overlays`.
+  # ---------------------------------------------------------------------------
+  overlays.sh: |
+    #!/bin/sh
+    set -eu
+    . /scripts/common.sh
+    wait_for_ldap
+    load_config_bind
+
+    [ -f /spec/overlays.json ] || { LOG "no overlays to reconcile"; exit 0; }
+    COUNT=$(jq 'length' /spec/overlays.json)
+    LOG "reconciling ${COUNT} overlay(s)"
+
+    PREV=/tmp/prev-overlays.json
+    state_get overlays > "$PREV"
+
+    DECLARED=/tmp/declared-overlays.json
+    jq '[.[] | {name: .name, database: (.database // "")}]' /spec/overlays.json > "$DECLARED"
+
+    i=0
+    while [ "$i" -lt "$COUNT" ]; do
+      NAME=$(jq -r ".[$i].name" /spec/overlays.json)
+      [ -n "$NAME" ] && [ "$NAME" != "null" ] || DIE "overlay #$i has no name"
+      ENABLE=$(jq -r ".[$i].enable // true" /spec/overlays.json)
+      DB=$(jq -r ".[$i].database // empty" /spec/overlays.json)
+      PURGE=$(jq -r ".[$i].purge // false" /spec/overlays.json)
+      NO_MOD=$(jq -r ".[$i].noModule // false" /spec/overlays.json)
+
+      DB_ARG=""
+      [ -n "$DB" ] && DB_ARG="--db ${DB}"
+
+      if [ "$ENABLE" = "true" ]; then
+        FLAGS=""
+        [ "$NO_MOD" = "true" ] && FLAGS="--no-module"
+        LOG "overlay enable ${NAME} ${DB_ARG} ${FLAGS}"
+        # shellcheck disable=SC2086
+        openldap-cli config overlay enable "$NAME" $DB_ARG $FLAGS
+      else
+        FLAGS=""
+        [ "$PURGE" = "true" ] && FLAGS="--purge"
+        LOG "overlay disable ${NAME} ${DB_ARG} ${FLAGS}"
+        # shellcheck disable=SC2086
+        openldap-cli config overlay disable "$NAME" $DB_ARG $FLAGS
+      fi
+
+      i=$((i + 1))
+    done
+
+    # Drift: overlays previously enabled by the chart but no longer declared
+    # are DISABLED (never purged automatically — data loss risk).
+    LOG "checking drift for removed overlays"
+    REMOVED=$(jq -c --slurpfile decl "$DECLARED" \
+      '[.[] as $p | $decl[0] | map(.name == $p.name and .database == $p.database) | any | not | select(.) | $p]' \
+      "$PREV" 2>/dev/null || echo '[]')
+    echo "$REMOVED" | jq -c '.[]?' | while read -r item; do
+      RN=$(printf '%s' "$item" | jq -r .name)
+      RDB=$(printf '%s' "$item" | jq -r '.database // empty')
+      DB_ARG=""
+      [ -n "$RDB" ] && DB_ARG="--db ${RDB}"
+      LOG "drift: disabling overlay ${RN} ${DB_ARG}"
+      # shellcheck disable=SC2086
+      openldap-cli config overlay disable "$RN" $DB_ARG || true
+    done
+
+    state_put overlays "$DECLARED"
+    LOG "overlays sync done"
+
+  # ---------------------------------------------------------------------------
+  # acls.sh — reconciles declarative olcAccess clauses via `openldap-cli config
+  # acl grant/revoke`. Each entry owns ONE grantee (group|dn); reconcile always
+  # revokes-then-grants so the resulting rule matches the declared shape.
+  # State (grantees × databases) tracked in ConfigMap key `acls`.
+  # ---------------------------------------------------------------------------
+  acls.sh: |
+    #!/bin/sh
+    set -eu
+    . /scripts/common.sh
+    wait_for_ldap
+    load_config_bind
+
+    [ -f /spec/acls.json ] || { LOG "no ACLs to reconcile"; exit 0; }
+    COUNT=$(jq 'length' /spec/acls.json)
+    LOG "reconciling ${COUNT} ACL clause(s)"
+
+    DEFAULT_DB="olcDatabase={1}mdb,cn=config"
+
+    PREV=/tmp/prev-acls.json
+    state_get acls > "$PREV"
+
+    # Declared identity = (database, grantee-kind, grantee-name).
+    DECLARED=/tmp/declared-acls.json
+    jq --arg ddb "$DEFAULT_DB" '[.[] | {
+      name: .name,
+      database: (.database // $ddb),
+      kind: (if .group then "group" else "dn" end),
+      grantee: (.group // .dn)
+    }]' /spec/acls.json > "$DECLARED"
+
+    i=0
+    while [ "$i" -lt "$COUNT" ]; do
+      NAME=$(jq -r ".[$i].name" /spec/acls.json)
+      [ -n "$NAME" ] && [ "$NAME" != "null" ] || DIE "acl #$i has no name"
+      TARGET=$(jq -r ".[$i].target" /spec/acls.json)
+      [ -n "$TARGET" ] && [ "$TARGET" != "null" ] || DIE "acl ${NAME}: target required"
+      ACCESS=$(jq -r ".[$i].access" /spec/acls.json)
+      [ "$ACCESS" = "read" ] || [ "$ACCESS" = "write" ] || DIE "acl ${NAME}: access must be read|write"
+      GROUP=$(jq -r ".[$i].group // empty" /spec/acls.json)
+      DN=$(jq -r ".[$i].dn // empty" /spec/acls.json)
+      [ -n "$GROUP" ] || [ -n "$DN" ] || DIE "acl ${NAME}: group or dn required"
+      [ -n "$GROUP" ] && [ -n "$DN" ] && DIE "acl ${NAME}: group and dn are mutually exclusive"
+      DB=$(jq -r --arg d "$DEFAULT_DB" ".[$i].database // \$d" /spec/acls.json)
+      SCOPE=$(jq -r ".[$i].scope // empty" /spec/acls.json)
+      FILTER=$(jq -r ".[$i].filter // empty" /spec/acls.json)
+      AT=$(jq -r ".[$i].at // empty" /spec/acls.json)
+      TERM=$(jq -r ".[$i].terminator // empty" /spec/acls.json)
+
+      # 1) revoke every existing clause referencing the grantee (idempotent).
+      if [ -n "$GROUP" ]; then
+        LOG "acl ${NAME}: revoke group=${GROUP} on ${DB}"
+        openldap-cli config acl revoke "$DB" --group "$GROUP" || true
+      else
+        LOG "acl ${NAME}: revoke dn=${DN} on ${DB}"
+        openldap-cli config acl revoke "$DB" --dn "$DN" || true
+      fi
+
+      # 2) grant fresh.
+      set -- "$DB" "$TARGET" --access "$ACCESS"
+      [ -n "$GROUP" ]  && set -- "$@" --group "$GROUP"
+      [ -n "$DN" ]     && set -- "$@" --dn "$DN"
+      [ -n "$SCOPE" ]  && set -- "$@" --scope "$SCOPE"
+      [ -n "$FILTER" ] && set -- "$@" --filter "$FILTER"
+      [ -n "$AT" ]     && set -- "$@" --at "$AT"
+      [ -n "$TERM" ]   && set -- "$@" --terminator "$TERM"
+      LOG "acl ${NAME}: grant target=${TARGET} access=${ACCESS}"
+      openldap-cli config acl grant "$@"
+
+      i=$((i + 1))
+    done
+
+    # Drift: revoke grantees the chart owned but that are no longer declared.
+    LOG "checking drift for removed ACL grantees"
+    REMOVED=$(jq -c --slurpfile decl "$DECLARED" '
+      [.[] as $p | ($decl[0] | map(.database == $p.database and .kind == $p.kind and .grantee == $p.grantee) | any) as $found
+        | if $found then empty else $p end]
+    ' "$PREV" 2>/dev/null || echo '[]')
+    echo "$REMOVED" | jq -c '.[]?' | while read -r item; do
+      RDB=$(printf '%s' "$item" | jq -r .database)
+      RK=$(printf '%s' "$item" | jq -r .kind)
+      RG=$(printf '%s' "$item" | jq -r .grantee)
+      LOG "drift: revoke ${RK}=${RG} on ${RDB}"
+      openldap-cli config acl revoke "$RDB" --"$RK" "$RG" || true
+    done
+
+    state_put acls "$DECLARED"
+    LOG "acls sync done"
+
+  # ---------------------------------------------------------------------------
+  # tree-grants.sh — reconciles svc grants (container + entry rules).
+  # Identity = (name, tree). Removed entries are revoked with --tree so
+  # co-grantees keep their rules.
+  # ---------------------------------------------------------------------------
+  tree-grants.sh: |
+    #!/bin/sh
+    set -eu
+    . /scripts/common.sh
+    wait_for_ldap
+    load_config_bind
+
+    [ -f /spec/tree-grants.json ] || { LOG "no tree grants to reconcile"; exit 0; }
+    COUNT=$(jq 'length' /spec/tree-grants.json)
+    LOG "reconciling ${COUNT} tree grant(s)"
+
+    PREV=/tmp/prev-tree-grants.json
+    state_get tree-grants > "$PREV"
+
+    DECLARED=/tmp/declared-tree-grants.json
+    jq '[.[] | {name: .name, tree: .tree}]' /spec/tree-grants.json > "$DECLARED"
+
+    i=0
+    while [ "$i" -lt "$COUNT" ]; do
+      NAME=$(jq -r ".[$i].name" /spec/tree-grants.json)
+      [ -n "$NAME" ] && [ "$NAME" != "null" ] || DIE "tree grant #$i has no name"
+      TREE=$(jq -r ".[$i].tree" /spec/tree-grants.json)
+      [ -n "$TREE" ] && [ "$TREE" != "null" ] || DIE "tree grant ${NAME}: tree required"
+      ACCESS=$(jq -r ".[$i].access // \"read\"" /spec/tree-grants.json)
+      MEM=$(jq -r ".[$i].membersOf // empty" /spec/tree-grants.json)
+
+      # revoke existing rules for (name, tree) then re-grant.
+      LOG "svc revoke ${NAME} --tree ${TREE}"
+      openldap-cli svc revoke "$NAME" --tree "$TREE" || true
+
+      set -- "$NAME" --tree "$TREE" --access "$ACCESS"
+      [ -n "$MEM" ] && set -- "$@" --members-of "$MEM"
+      LOG "svc grant ${NAME} --tree ${TREE} --access ${ACCESS}"
+      openldap-cli svc grant "$@"
+
+      i=$((i + 1))
+    done
+
+    LOG "checking drift for removed tree grants"
+    REMOVED=$(jq -c --slurpfile decl "$DECLARED" '
+      [.[] as $p | ($decl[0] | map(.name == $p.name and .tree == $p.tree) | any) as $found
+        | if $found then empty else $p end]
+    ' "$PREV" 2>/dev/null || echo '[]')
+    echo "$REMOVED" | jq -c '.[]?' | while read -r item; do
+      RN=$(printf '%s' "$item" | jq -r .name)
+      RT=$(printf '%s' "$item" | jq -r .tree)
+      LOG "drift: svc revoke ${RN} --tree ${RT}"
+      openldap-cli svc revoke "$RN" --tree "$RT" || true
+    done
+
+    state_put tree-grants "$DECLARED"
+    LOG "tree grants sync done"
+
+  # ---------------------------------------------------------------------------
+  # acl-lint.sh — periodic `config acl lint`. Exits non-zero when unreachable /
+  # no-op rules are reported so the CronJob shows Failed and can page.
+  # ---------------------------------------------------------------------------
+  acl-lint.sh: |
+    #!/bin/sh
+    set -eu
+    . /scripts/common.sh
+    wait_for_ldap
+    load_config_bind
+
+    : "${LINT_DATABASES:=olcDatabase={1}mdb,cn=config}"
+    FAILED=0
+    # LINT_DATABASES is a space-separated list; each entry may contain commas
+    # (e.g. olcDatabase={1}mdb,cn=config) so caller must not use commas as sep.
+    for DB in $LINT_DATABASES; do
+      LOG "lint ${DB}"
+      if ! openldap-cli config acl lint "$DB"; then
+        LOG "  FINDINGS on ${DB}"
+        FAILED=1
+      fi
+    done
+
+    if [ "$FAILED" -eq 1 ]; then
+      DIE "ACL lint reported unreachable or no-op rules — see logs"
+    fi
+    LOG "acl lint clean"
 {{- end }}

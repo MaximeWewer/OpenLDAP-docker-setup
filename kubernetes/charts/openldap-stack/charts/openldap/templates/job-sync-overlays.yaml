@@ -1,0 +1,3 @@
+{{- if .Values.overlays -}}
+{{ include "openldap.syncJob" (dict "context" . "name" "overlays" "script" "overlays.sh" "weight" "4") }}
+{{- end }}

@@ -1,0 +1,92 @@
+{{- if .Values.aclLintCronJob.enabled -}}
+{{- $fullName := include "openldap.fullname" . -}}
+{{- $dbs := .Values.aclLintCronJob.databases -}}
+{{- if not $dbs }}{{- $dbs = list "olcDatabase={1}mdb,cn=config" }}{{- end }}
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ $fullName }}-acl-lint
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "openldap.labels" . | nindent 4 }}
+    app.kubernetes.io/component: acl-lint
+spec:
+  schedule: {{ .Values.aclLintCronJob.schedule | quote }}
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 0
+      ttlSecondsAfterFinished: 86400
+      template:
+        metadata:
+          labels:
+            {{- include "openldap.selectorLabels" . | nindent 12 }}
+            app.kubernetes.io/component: acl-lint
+        spec:
+          restartPolicy: OnFailure
+          serviceAccountName: {{ $fullName }}-sync
+          securityContext:
+            runAsNonRoot: false
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: lint
+              image: "{{ .Values.cli.image.repository }}:{{ .Values.cli.image.tag }}"
+              imagePullPolicy: {{ .Values.cli.image.pullPolicy }}
+              command: ["/bin/sh", "-eu", "/scripts/acl-lint.sh"]
+              env:
+                - name: RELEASE_NAME
+                  value: {{ .Release.Name | quote }}
+                - name: RELEASE_FULLNAME
+                  value: {{ $fullName | quote }}
+                - name: RELEASE_NAMESPACE
+                  value: {{ .Release.Namespace | quote }}
+                - name: LDAP_URL
+                  value: "ldap://{{ $fullName }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.ldapPort }}"
+                - name: LDAP_BASE_DN
+                  value: {{ .Values.directory.suffix | quote }}
+                - name: LDAP_BIND_DN
+                  value: {{ .Values.admin.bindDN | quote }}
+                - name: LDAP_USER_OU
+                  value: "ou=users"
+                - name: LDAP_GROUP_OU
+                  value: "ou=groups"
+                - name: LDAP_POLICY_OU
+                  value: "ou=policies"
+                - name: LDAP_MAIL_DOMAIN
+                  value: {{ include "openldap.mailDomain" . | quote }}
+                - name: CLI_VERSION
+                  value: {{ .Values.cli.version | quote }}
+                - name: CLI_DOWNLOAD_URL
+                  value: {{ .Values.cli.downloadUrl | quote }}
+                - name: KUBECTL_VERSION
+                  value: {{ .Values.cli.kubectlVersion | quote }}
+                - name: WAIT_TIMEOUT_SECONDS
+                  value: {{ .Values.cli.waitForLdap.timeoutSeconds | quote }}
+                - name: WAIT_INTERVAL_SECONDS
+                  value: {{ .Values.cli.waitForLdap.intervalSeconds | quote }}
+                # Space-separated list of database DNs to lint (entries contain
+                # commas so the delimiter must stay whitespace).
+                - name: LINT_DATABASES
+                  value: {{ join " " $dbs | quote }}
+              resources:
+                {{- toYaml .Values.aclLintCronJob.resources | nindent 16 }}
+              volumeMounts:
+                - name: scripts
+                  mountPath: /scripts
+                  readOnly: true
+                - name: admin-secret
+                  mountPath: /secrets
+                  readOnly: true
+          volumes:
+            - name: scripts
+              configMap:
+                name: {{ $fullName }}-sync-scripts
+                defaultMode: 0555
+            - name: admin-secret
+              secret:
+                secretName: {{ include "openldap.adminSecretName" . }}
+                defaultMode: 0400
+{{- end }}

@@ -1,0 +1,3 @@
+{{- if .Values.acls -}}
+{{ include "openldap.syncJob" (dict "context" . "name" "acls" "script" "acls.sh" "weight" "8") }}
+{{- end }}

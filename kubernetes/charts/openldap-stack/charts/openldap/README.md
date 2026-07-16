@@ -28,6 +28,14 @@ Kubernetes: `>=1.27.0-0`
 | accesslogPurgeJob.resources.requests.memory | string | `"64Mi"` |  |
 | accesslogPurgeJob.schedule | string | `"0 3 * * 0"` |  |
 | accesslogPurgeJob.sweep | string | `"00+06:00"` |  |
+| aclLintCronJob.databases | list | `[]` |  |
+| aclLintCronJob.enabled | bool | `false` |  |
+| aclLintCronJob.resources.limits.cpu | string | `"500m"` |  |
+| aclLintCronJob.resources.limits.memory | string | `"256Mi"` |  |
+| aclLintCronJob.resources.requests.cpu | string | `"50m"` |  |
+| aclLintCronJob.resources.requests.memory | string | `"64Mi"` |  |
+| aclLintCronJob.schedule | string | `"0 6 * * *"` |  |
+| acls | list | `[]` |  |
 | admin.bindDN | string | `"cn=admin,dc=example,dc=org"` |  |
 | admin.existingSecret | string | `""` |  |
 | affinity | object | `{}` |  |
@@ -61,7 +69,7 @@ Kubernetes: `>=1.27.0-0`
 | cli.resources.limits.memory | string | `"256Mi"` |  |
 | cli.resources.requests.cpu | string | `"50m"` |  |
 | cli.resources.requests.memory | string | `"64Mi"` |  |
-| cli.version | string | `"v2026.6.3"` |  |
+| cli.version | string | `"v2026.7.3"` |  |
 | cli.waitForLdap.intervalSeconds | int | `3` |  |
 | cli.waitForLdap.timeoutSeconds | int | `180` |  |
 | command | list | `[]` |  |
@@ -147,6 +155,7 @@ Kubernetes: `>=1.27.0-0`
 | nodeSelector | object | `{}` |  |
 | onGroupRemove | string | `"delete"` |  |
 | onUserRemove | string | `"delete"` |  |
+| overlays | list | `[]` |  |
 | persistence.accessModes[0] | string | `"ReadWriteOnce"` |  |
 | persistence.annotations | object | `{}` |  |
 | persistence.enabled | bool | `true` |  |
@@ -261,4 +270,5 @@ Kubernetes: `>=1.27.0-0`
 | tls.provided.secretName | string | `""` |  |
 | tolerations | list | `[]` |  |
 | topologySpreadConstraints | list | `[]` |  |
+| treeGrants | list | `[]` |  |
 | users | list | `[]` |  |

@@ -75,6 +75,14 @@ Kubernetes: `>=1.27.0-0`
 | openldap.accesslogPurgeJob.resources.requests.memory | string | `"64Mi"` |  |
 | openldap.accesslogPurgeJob.schedule | string | `"0 3 * * 0"` |  |
 | openldap.accesslogPurgeJob.sweep | string | `"00+06:00"` |  |
+| openldap.aclLintCronJob.databases | list | `[]` |  |
+| openldap.aclLintCronJob.enabled | bool | `false` |  |
+| openldap.aclLintCronJob.resources.limits.cpu | string | `"500m"` |  |
+| openldap.aclLintCronJob.resources.limits.memory | string | `"256Mi"` |  |
+| openldap.aclLintCronJob.resources.requests.cpu | string | `"50m"` |  |
+| openldap.aclLintCronJob.resources.requests.memory | string | `"64Mi"` |  |
+| openldap.aclLintCronJob.schedule | string | `"0 6 * * *"` |  |
+| openldap.acls | list | `[]` |  |
 | openldap.admin.bindDN | string | `"cn=admin,dc=example,dc=org"` |  |
 | openldap.admin.existingSecret | string | `""` |  |
 | openldap.affinity | object | `{}` |  |
@@ -108,7 +116,7 @@ Kubernetes: `>=1.27.0-0`
 | openldap.cli.resources.limits.memory | string | `"256Mi"` |  |
 | openldap.cli.resources.requests.cpu | string | `"50m"` |  |
 | openldap.cli.resources.requests.memory | string | `"64Mi"` |  |
-| openldap.cli.version | string | `"v2026.6.3"` |  |
+| openldap.cli.version | string | `"v2026.7.3"` |  |
 | openldap.cli.waitForLdap.intervalSeconds | int | `3` |  |
 | openldap.cli.waitForLdap.timeoutSeconds | int | `180` |  |
 | openldap.command | list | `[]` |  |
@@ -195,6 +203,7 @@ Kubernetes: `>=1.27.0-0`
 | openldap.nodeSelector | object | `{}` |  |
 | openldap.onGroupRemove | string | `"delete"` |  |
 | openldap.onUserRemove | string | `"delete"` |  |
+| openldap.overlays | list | `[]` |  |
 | openldap.persistence.accessModes[0] | string | `"ReadWriteOnce"` |  |
 | openldap.persistence.annotations | object | `{}` |  |
 | openldap.persistence.enabled | bool | `true` |  |
@@ -309,6 +318,7 @@ Kubernetes: `>=1.27.0-0`
 | openldap.tls.provided.secretName | string | `""` |  |
 | openldap.tolerations | list | `[]` |  |
 | openldap.topologySpreadConstraints | list | `[]` |  |
+| openldap.treeGrants | list | `[]` |  |
 | openldap.users | list | `[]` |  |
 | phpldapadmin.affinity | object | `{}` |  |
 | phpldapadmin.app.keyExistingSecret | string | `""` |  |

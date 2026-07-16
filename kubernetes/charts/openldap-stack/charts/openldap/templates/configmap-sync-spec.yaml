@@ -4,7 +4,7 @@ Regenerated on every helm upgrade so the sync Jobs always see the current
 values.yaml. Checksums on the sync Job pods force re-run when the spec
 changes.
 */ -}}
-{{- if or .Values.users .Values.groups .Values.policies -}}
+{{- if or .Values.users .Values.groups .Values.policies .Values.acls .Values.treeGrants .Values.overlays -}}
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -25,5 +25,17 @@ data:
   {{- if .Values.groups }}
   groups.json: |
     {{ .Values.groups | toJson }}
+  {{- end }}
+  {{- if .Values.acls }}
+  acls.json: |
+    {{ .Values.acls | toJson }}
+  {{- end }}
+  {{- if .Values.treeGrants }}
+  tree-grants.json: |
+    {{ .Values.treeGrants | toJson }}
+  {{- end }}
+  {{- if .Values.overlays }}
+  overlays.json: |
+    {{ .Values.overlays | toJson }}
   {{- end }}
 {{- end }}
