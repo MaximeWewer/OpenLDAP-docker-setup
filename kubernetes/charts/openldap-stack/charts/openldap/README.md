@@ -1,0 +1,274 @@
+# openldap
+
+![Version: 0.1.0](https://img.shields.io/badge/Version-0.1.0-informational?style=flat-square) ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square) ![AppVersion: 2.6.13](https://img.shields.io/badge/AppVersion-2.6.13-informational?style=flat-square)
+
+OpenLDAP 2.6 server (StatefulSet) with declarative cn=config bootstrap,
+suffix/OU/admin bootstrap, and hooks for downstream sync jobs backed by
+openldap-cli.
+
+**Homepage:** <https://github.com/MaximeWewer/OpenLDAP-docker-setup>
+
+## Maintainers
+
+| Name | Email | Url |
+| ---- | ------ | --- |
+| MaximeWewer |  | <https://github.com/MaximeWewer> |
+
+## Source Code
+
+* <https://github.com/MaximeWewer/OpenLDAP-docker-setup>
+
+## Requirements
+
+Kubernetes: `>=1.27.0-0`
+
+## Values
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| accesslog.logSuccess | bool | `false` |  |
+| accesslog.ops | string | `"writes bind"` |  |
+| accesslog.purge | string | `"07+00:00 01+00:00"` |  |
+| accesslogPurgeJob.dryRun | bool | `false` |  |
+| accesslogPurgeJob.enabled | bool | `false` |  |
+| accesslogPurgeJob.keepDays | int | `7` |  |
+| accesslogPurgeJob.resources.limits.cpu | string | `"500m"` |  |
+| accesslogPurgeJob.resources.limits.memory | string | `"256Mi"` |  |
+| accesslogPurgeJob.resources.requests.cpu | string | `"50m"` |  |
+| accesslogPurgeJob.resources.requests.memory | string | `"64Mi"` |  |
+| accesslogPurgeJob.schedule | string | `"0 3 * * 0"` |  |
+| accesslogPurgeJob.sweep | string | `"00+06:00"` |  |
+| admin.bindDN | string | `"cn=admin,dc=example,dc=org"` |  |
+| admin.existingSecret | string | `""` |  |
+| affinity | object | `{}` |  |
+| args | list | `[]` |  |
+| backup.enabled | bool | `false` |  |
+| backup.fileNamePattern | string | `"{{ .kind }}_{{ .date }}.ldif.gz"` |  |
+| backup.includeOperational | bool | `true` |  |
+| backup.persistence.accessModes[0] | string | `"ReadWriteOnce"` |  |
+| backup.persistence.annotations | object | `{}` |  |
+| backup.persistence.enabled | bool | `true` |  |
+| backup.persistence.existingClaim | string | `""` |  |
+| backup.persistence.size | string | `"20Gi"` |  |
+| backup.persistence.storageClass | string | `""` |  |
+| backup.resources.limits.cpu | string | `"500m"` |  |
+| backup.resources.limits.memory | string | `"512Mi"` |  |
+| backup.resources.requests.cpu | string | `"50m"` |  |
+| backup.resources.requests.memory | string | `"128Mi"` |  |
+| backup.retentionDays | int | `30` |  |
+| backup.s3.bucket | string | `""` |  |
+| backup.s3.enabled | bool | `false` |  |
+| backup.s3.endpoint | string | `""` |  |
+| backup.s3.existingSecret | string | `""` |  |
+| backup.s3.region | string | `""` |  |
+| backup.schedule | string | `"0 22 * * *"` |  |
+| cli.downloadUrl | string | `"https://github.com/MaximeWewer/openldap-cli/releases/download"` |  |
+| cli.image.pullPolicy | string | `"IfNotPresent"` |  |
+| cli.image.repository | string | `"alpine"` |  |
+| cli.image.tag | string | `"3.19"` |  |
+| cli.kubectlVersion | string | `"v1.29.4"` |  |
+| cli.resources.limits.cpu | string | `"500m"` |  |
+| cli.resources.limits.memory | string | `"256Mi"` |  |
+| cli.resources.requests.cpu | string | `"50m"` |  |
+| cli.resources.requests.memory | string | `"64Mi"` |  |
+| cli.version | string | `"v2026.6.3"` |  |
+| cli.waitForLdap.intervalSeconds | int | `3` |  |
+| cli.waitForLdap.timeoutSeconds | int | `180` |  |
+| command | list | `[]` |  |
+| configAdmin.bindDN | string | `"cn=adminconfig,cn=config"` |  |
+| customAcls | list | `[]` |  |
+| customLdifs.existingConfigMap | string | `""` |  |
+| customLdifs.files | object | `{}` |  |
+| customSchemas.existingConfigMap | string | `""` |  |
+| customSchemas.files | object | `{}` |  |
+| database.accesslog.maxSizeBytes | int | `1073741824` |  |
+| database.main.maxSizeBytes | int | `1073741824` |  |
+| directory.description | string | `""` |  |
+| directory.organization | string | `"Example Org"` |  |
+| directory.organizationalUnits[0] | string | `"users"` |  |
+| directory.organizationalUnits[1] | string | `"groups"` |  |
+| directory.organizationalUnits[2] | string | `"service-accounts"` |  |
+| directory.organizationalUnits[3] | string | `"policies"` |  |
+| directory.schemas[0] | string | `"cosine"` |  |
+| directory.schemas[1] | string | `"inetorgperson"` |  |
+| directory.schemas[2] | string | `"dyngroup"` |  |
+| directory.suffix | string | `"dc=example,dc=org"` |  |
+| existingBootstrapConfigMap | string | `""` |  |
+| extraAcls | list | `[]` |  |
+| extraDeploy | list | `[]` |  |
+| extraEnv | list | `[]` |  |
+| extraInitContainers | list | `[]` |  |
+| extraVolumeMounts | list | `[]` |  |
+| extraVolumes | list | `[]` |  |
+| groups | list | `[]` |  |
+| headlessService.annotations | object | `{}` |  |
+| image.pullPolicy | string | `"IfNotPresent"` |  |
+| image.repository | string | `"cleanstart/openldap"` |  |
+| image.tag | string | `"2.6.13"` |  |
+| ingress.enabled | bool | `false` |  |
+| ingress.gatewayAPI.gatewayClassName | string | `""` |  |
+| ingress.gatewayAPI.gatewayName | string | `""` |  |
+| ingress.gatewayAPI.gatewayNamespace | string | `""` |  |
+| ingress.gatewayAPI.listenerName | string | `"ldaps"` |  |
+| ingress.gatewayAPI.port | int | `636` |  |
+| ingress.host | string | `""` |  |
+| ingress.ingressNginx.annotations | object | `{}` |  |
+| ingress.ingressNginx.className | string | `"nginx"` |  |
+| ingress.ingressNginx.sslPassthrough | bool | `true` |  |
+| ingress.mode | string | `"ingress-nginx"` |  |
+| initImage.packages | string | `"openldap openldap-clients openldap-back-mdb openldap-overlay-all"` |  |
+| initImage.pullPolicy | string | `"IfNotPresent"` |  |
+| initImage.repository | string | `"alpine"` |  |
+| initImage.tag | string | `"3.19"` |  |
+| livenessProbe.failureThreshold | int | `6` |  |
+| livenessProbe.initialDelaySeconds | int | `30` |  |
+| livenessProbe.periodSeconds | int | `30` |  |
+| livenessProbe.tcpSocket.port | string | `"ldap"` |  |
+| livenessProbe.timeoutSeconds | int | `5` |  |
+| mode | string | `"standalone"` |  |
+| monitoring.enabled | bool | `false` |  |
+| monitoring.exporter.extraEnv | list | `[]` |  |
+| monitoring.exporter.image.pullPolicy | string | `"IfNotPresent"` |  |
+| monitoring.exporter.image.repository | string | `"ghcr.io/maximewewer/openldap_prometheus_exporter"` |  |
+| monitoring.exporter.image.tag | string | `"latest"` |  |
+| monitoring.exporter.port | int | `9330` |  |
+| monitoring.exporter.resources.limits.cpu | string | `"200m"` |  |
+| monitoring.exporter.resources.limits.memory | string | `"128Mi"` |  |
+| monitoring.exporter.resources.requests.cpu | string | `"20m"` |  |
+| monitoring.exporter.resources.requests.memory | string | `"32Mi"` |  |
+| monitoring.prometheusRule.enabled | bool | `false` |  |
+| monitoring.prometheusRule.labels | object | `{}` |  |
+| monitoring.prometheusRule.rules.defaultsEnabled | bool | `true` |  |
+| monitoring.serviceMonitor.enabled | bool | `false` |  |
+| monitoring.serviceMonitor.interval | string | `"30s"` |  |
+| monitoring.serviceMonitor.labels | object | `{}` |  |
+| monitoring.serviceMonitor.metricRelabelings | list | `[]` |  |
+| monitoring.serviceMonitor.relabelings | list | `[]` |  |
+| monitoring.serviceMonitor.scrapeTimeout | string | `"10s"` |  |
+| networkPolicy.allowedFrom | list | `[]` |  |
+| networkPolicy.enabled | bool | `false` |  |
+| networkPolicy.externalPeerCIDRs | list | `[]` |  |
+| networkPolicy.extraEgress | list | `[]` |  |
+| networkPolicy.extraIngress | list | `[]` |  |
+| networkPolicy.prometheusNamespace | string | `""` |  |
+| nodeAffinityPreset.key | string | `""` |  |
+| nodeAffinityPreset.type | string | `""` |  |
+| nodeAffinityPreset.values | list | `[]` |  |
+| nodeSelector | object | `{}` |  |
+| onGroupRemove | string | `"delete"` |  |
+| onUserRemove | string | `"delete"` |  |
+| persistence.accessModes[0] | string | `"ReadWriteOnce"` |  |
+| persistence.annotations | object | `{}` |  |
+| persistence.enabled | bool | `true` |  |
+| persistence.size | string | `"10Gi"` |  |
+| persistence.storageClass | string | `""` |  |
+| podAnnotations | object | `{}` |  |
+| podAntiAffinityPreset | string | `""` |  |
+| podDisruptionBudget.enabled | string | `"auto"` |  |
+| podDisruptionBudget.maxUnavailable | string | `""` |  |
+| podDisruptionBudget.minAvailable | string | `""` |  |
+| podDisruptionBudget.unhealthyPodEvictionPolicy | string | `""` |  |
+| podLabels | object | `{}` |  |
+| podSecurityContext.fsGroup | int | `102` |  |
+| podSecurityContext.runAsNonRoot | bool | `true` |  |
+| podSecurityContext.seccompProfile.type | string | `"RuntimeDefault"` |  |
+| policies | list | `[]` |  |
+| ppolicy.defaultPolicyRDN | string | `"cn=defaultppolicy"` |  |
+| ppolicy.enabled | bool | `true` |  |
+| ppolicy.hashCleartext | bool | `true` |  |
+| priorityClassName | string | `""` |  |
+| readOnlyReplicas.affinity | object | `{}` |  |
+| readOnlyReplicas.count | int | `0` |  |
+| readOnlyReplicas.enforceReadOnly | bool | `true` |  |
+| readOnlyReplicas.nodeSelector | object | `{}` |  |
+| readOnlyReplicas.persistence.size | string | `""` |  |
+| readOnlyReplicas.persistence.storageClass | string | `""` |  |
+| readOnlyReplicas.podAnnotations | object | `{}` |  |
+| readOnlyReplicas.podLabels | object | `{}` |  |
+| readOnlyReplicas.priorityClassName | string | `""` |  |
+| readOnlyReplicas.resources | object | `{}` |  |
+| readOnlyReplicas.serverIdBase | int | `100` |  |
+| readOnlyReplicas.service.annotations | object | `{}` |  |
+| readOnlyReplicas.service.type | string | `"ClusterIP"` |  |
+| readOnlyReplicas.tolerations | list | `[]` |  |
+| readOnlyReplicas.topologySpreadConstraints | list | `[]` |  |
+| readinessProbe.failureThreshold | int | `3` |  |
+| readinessProbe.initialDelaySeconds | int | `5` |  |
+| readinessProbe.periodSeconds | int | `10` |  |
+| readinessProbe.tcpSocket.port | string | `"ldap"` |  |
+| readinessProbe.timeoutSeconds | int | `3` |  |
+| replicaCount | int | `1` |  |
+| replication.externalPeers | list | `[]` |  |
+| replication.replicator.dn | string | `"cn=replicator,ou=service-accounts"` |  |
+| replication.replicator.existingSecret | string | `""` |  |
+| replication.retry | string | `"5 60 60 +"` |  |
+| replication.seedOnOrdinalZeroOnly | bool | `true` |  |
+| replication.serverIdBase | int | `1` |  |
+| replication.startTLS | string | `""` |  |
+| replication.syncprov.checkpoint | string | `"100 10"` |  |
+| replication.syncprov.sessionLog | int | `500` |  |
+| replication.tlsReqcert | string | `""` |  |
+| resources.limits.cpu | string | `"1000m"` |  |
+| resources.limits.memory | string | `"1Gi"` |  |
+| resources.requests.cpu | string | `"100m"` |  |
+| resources.requests.memory | string | `"256Mi"` |  |
+| secrets.backend | string | `"kubernetes"` |  |
+| secrets.externalSecrets.pathPrefix | string | `""` |  |
+| secrets.externalSecrets.secretStore.kind | string | `"ClusterSecretStore"` |  |
+| secrets.externalSecrets.secretStore.name | string | `""` |  |
+| securityContext.allowPrivilegeEscalation | bool | `false` |  |
+| securityContext.capabilities.drop[0] | string | `"ALL"` |  |
+| securityContext.readOnlyRootFilesystem | bool | `true` |  |
+| securityContext.runAsGroup | int | `102` |  |
+| securityContext.runAsUser | int | `101` |  |
+| service.annotations | object | `{}` |  |
+| service.clusterIP | string | `""` |  |
+| service.enableLdapPort | bool | `true` |  |
+| service.enableLdapsPort | bool | `true` |  |
+| service.externalTrafficPolicy | string | `""` |  |
+| service.ipFamilies | list | `[]` |  |
+| service.ipFamilyPolicy | string | `""` |  |
+| service.ldapNodePort | string | `""` |  |
+| service.ldapPort | int | `389` |  |
+| service.ldapsNodePort | string | `""` |  |
+| service.ldapsPort | int | `636` |  |
+| service.loadBalancerIP | string | `""` |  |
+| service.loadBalancerSourceRanges | list | `[]` |  |
+| service.type | string | `"ClusterIP"` |  |
+| serviceAccount.annotations | object | `{}` |  |
+| serviceAccount.automountServiceAccountToken | bool | `false` |  |
+| serviceAccount.create | bool | `true` |  |
+| serviceAccount.name | string | `""` |  |
+| sidecars | list | `[]` |  |
+| startupProbe.failureThreshold | int | `60` |  |
+| startupProbe.initialDelaySeconds | int | `5` |  |
+| startupProbe.periodSeconds | int | `5` |  |
+| startupProbe.tcpSocket.port | string | `"ldap"` |  |
+| startupProbe.timeoutSeconds | int | `3` |  |
+| tls.backend | string | `"cert-manager"` |  |
+| tls.certManager.dnsNames | list | `[]` |  |
+| tls.certManager.duration | string | `"8760h"` |  |
+| tls.certManager.issuerRef.kind | string | `"ClusterIssuer"` |  |
+| tls.certManager.issuerRef.name | string | `""` |  |
+| tls.certManager.renewBefore | string | `"720h"` |  |
+| tls.disallowPlainBind | bool | `false` |  |
+| tls.enabled | bool | `false` |  |
+| tls.job.caValidityDays | int | `3650` |  |
+| tls.job.certValidityDays | int | `365` |  |
+| tls.job.commonName | string | `""` |  |
+| tls.job.image.pullPolicy | string | `"IfNotPresent"` |  |
+| tls.job.image.repository | string | `"alpine"` |  |
+| tls.job.image.tag | string | `"3.19"` |  |
+| tls.job.renewThresholdDays | int | `30` |  |
+| tls.job.resources.limits.cpu | string | `"200m"` |  |
+| tls.job.resources.limits.memory | string | `"128Mi"` |  |
+| tls.job.resources.requests.cpu | string | `"20m"` |  |
+| tls.job.resources.requests.memory | string | `"32Mi"` |  |
+| tls.job.rollingRestartOnRenew | bool | `true` |  |
+| tls.job.schedule | string | `"0 4 * * 1"` |  |
+| tls.job.subjectAltNames | list | `[]` |  |
+| tls.minSSF | int | `0` |  |
+| tls.provided.secretName | string | `""` |  |
+| tolerations | list | `[]` |  |
+| topologySpreadConstraints | list | `[]` |  |
+| users | list | `[]` |  |
