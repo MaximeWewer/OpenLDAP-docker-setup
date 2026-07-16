@@ -1,11 +1,6 @@
 # =============================================================================
 # openldap subchart — values
 # =============================================================================
-# MVP (PR 2): standalone mode only. HA (mirror / multi-master / cross-cluster),
-# users/groups/ppolicy sync, backup, monitoring, TLS, ingress and hardening
-# knobs are declared here but implemented in later PRs — they are documented
-# with a "(PR N)" marker to preview the final shape without surprising anyone.
-# =============================================================================
 
 image:
   # Runtime image — distroless, only runs slapd.
@@ -25,14 +20,14 @@ initImage:
 
 # StatefulSet replicas.
 #   standalone     -> replicaCount MUST be 1
-#   mirror         -> replicaCount MUST be 2 (PR 3)
-#   multi-master   -> replicaCount >= 2 (PR 3)
+#   mirror         -> replicaCount MUST be 2
+#   multi-master   -> replicaCount >= 2
 replicaCount: 1
 
 # Deployment topology.
 #   standalone   -> single pod, no replication
-#   mirror       -> 2 pods, MirrorMode active/passive with delta-syncrepl (PR 3)
-#   multi-master -> N-way multi-master with delta-syncrepl (PR 3)
+#   mirror       -> 2 pods, MirrorMode active/passive with delta-syncrepl
+#   multi-master -> N-way multi-master with delta-syncrepl
 mode: standalone
 
 # =============================================================================
@@ -130,7 +125,7 @@ headlessService:
   annotations: {}
 
 # =============================================================================
-# TLS (PR 6)
+# TLS
 # =============================================================================
 tls:
   enabled: false
@@ -196,8 +191,8 @@ replication:
   # is a URI to another OpenLDAP node's LDAP(S) endpoint, e.g.
   #   - ldaps://ldap.dc2.example.com:636
   # These are appended to the in-cluster StatefulSet peers when building the
-  # syncrepl provider list. Ingress (PR 6) must expose LDAPS externally on
-  # each cluster before cross-cluster replication converges.
+  # syncrepl provider list. The ingress block below must expose LDAPS
+  # externally on each cluster before cross-cluster replication converges.
   externalPeers: []
 
   # Delta-syncrepl retry policy: <interval> <retries> <interval2> <retries2>.
@@ -364,7 +359,8 @@ backup:
     existingClaim: ""
 
   # Optional remote destination — copied AFTER the local dump succeeds.
-  # PR-later: implement mc/aws sync inside the backup script.
+  # Not implemented yet — the fields are reserved so enabling this in a
+  # future release doesn't change the values schema.
   s3:
     enabled: false
     bucket: ""
@@ -440,7 +436,7 @@ monitoring:
       defaultsEnabled: true
 
 # =============================================================================
-# Ingress (PR 6)
+# Ingress
 # =============================================================================
 ingress:
   enabled: false
@@ -474,7 +470,8 @@ ingress:
     port: 636
 
 # =============================================================================
-# Hardening — sensible defaults for MVP, tightened in PR 7
+# Hardening — strict defaults (non-root, drop-all caps, read-only rootfs
+# on the server + exporter containers).
 # =============================================================================
 serviceAccount:
   create: true

@@ -9,8 +9,8 @@ The sync Jobs need to:
     alongside the LDAP entry).
 
 Nothing outside the release namespace is granted; cluster-scoped access
-is never needed (external-secrets — PR-later — will delegate to ESO's
-own controller SA rather than expanding this Role).
+is never needed (external-secrets integration delegates to ESO's own
+controller SA rather than expanding this Role).
 */ -}}
 {{- if or .Values.users .Values.groups .Values.policies .Values.backup.enabled .Values.accesslogPurgeJob.enabled (and .Values.tls.enabled (eq .Values.tls.backend "job")) -}}
 apiVersion: v1

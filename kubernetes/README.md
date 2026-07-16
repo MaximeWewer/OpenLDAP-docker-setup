@@ -4,22 +4,37 @@ Helm-based deployment of the OpenLDAP stack (server + phpLDAPadmin + Self Servic
 Password) with declarative GitOps-friendly administration via
 [openldap-cli](https://github.com/MaximeWewer/openldap-cli).
 
-## Status
+> Running on Docker Compose? See [`../docker/`](../docker/).
 
-Chart is feature-complete for the initial roadmap. Roadmap below is kept
-as a change-log — every row is `done`. Further work goes into new PRs.
+## Features
 
-| PR | Scope | Status |
-|----|-------|--------|
-| 2 | Scaffold umbrella chart + `openldap` subchart (standalone MVP) | done |
-| 3 | HA modes (mirror, multi-master, cross-cluster external peers) | done |
-| 4 | Users / groups / ppolicy sync jobs + password Secret backend | done |
-| 5 | Backup CronJob + accesslog-purge + Prometheus exporter sidecar | done |
-| 6 | Ingress (ingress-nginx + Gateway API) + cert-manager / cert Job | done |
-| 7 | Hardening pass (NetworkPolicy, PSA restricted, PDB, seccomp) | done |
-| 8 | `phpldapadmin` subchart | done |
-| 9 | `self-service-password` subchart | done |
-| 10 | GitOps guides (Argo CD + Flux) + cross-cluster bootstrap doc | done |
+- **openldap** subchart — StatefulSet on OpenLDAP 2.6, three deployment
+  modes (`standalone`, `mirror`, `multi-master`) including cross-cluster
+  N-way replication via `replication.externalPeers`.
+- **Declarative admin** — users, groups and ppolicy templates are
+  reconciled every `helm upgrade` by post-install Jobs driving
+  [openldap-cli](https://github.com/MaximeWewer/openldap-cli); passwords
+  auto-generated and stored per-user in K8s Secrets.
+- **TLS backends** — `cert-manager` (Certificate CR), `job` (in-cluster
+  self-signed CA + weekly renewal CronJob with rollout restart), or
+  `provided` (external Secret).
+- **Ingress** — `ingress-nginx` SSL passthrough or Gateway API TLSRoute
+  for LDAPS.
+- **Backup + accesslog purge** — CronJobs invoking
+  `openldap-cli backup` and `openldap-cli ops accesslog-purge`, with
+  retention.
+- **Monitoring** — sidecar
+  [OpenLDAP Prometheus exporter](https://github.com/MaximeWewer/OpenLDAP_prometheus_exporter),
+  ServiceMonitor + baseline PrometheusRule.
+- **Hardening** — non-root, drop-all caps, read-only rootfs, seccomp
+  RuntimeDefault, PDB (auto in HA), NetworkPolicy scoped to server pods
+  with explicit allows.
+- **UI subcharts** — `phpldapadmin` (browse/edit) and
+  `self-service-password` (end-user password change/reset), both wired
+  to the openldap Service by default.
+- **GitOps-ready** — reference Argo CD Application + Flux HelmRelease
+  under [`gitops/`](./gitops/), cross-cluster bootstrap runbook under
+  [`cross-cluster/`](./cross-cluster/).
 
 ## Layout
 
@@ -449,9 +464,10 @@ helm upgrade --install ldap kubernetes/charts/openldap-stack/ \
 ```
 
 **Cross-cluster HA** — every peer needs an outside-reachable LDAP(S)
-endpoint (see PR 6 for ingress). Set `openldap.replication.externalPeers`
-to the FQDNs of nodes in the other cluster(s), and pick a distinct
-`serverIdBase` per cluster so `olcServerID` stays globally unique:
+endpoint (see the [Ingress](#ingress-ldaps-only) section). Set
+`openldap.replication.externalPeers` to the FQDNs of nodes in the other
+cluster(s), and pick a distinct `serverIdBase` per cluster so
+`olcServerID` stays globally unique:
 
 ```yaml
 # Cluster DC1

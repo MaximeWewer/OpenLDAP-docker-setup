@@ -4,6 +4,8 @@ A streamlined way to deploy an **[OpenLDAP](https://openldap.org/)** server alon
 
 Day-to-day directory administration is handled by the companion CLI **[openldap-cli](https://github.com/MaximeWewer/openldap-cli)**.
 
+> Running on Kubernetes? See the Helm chart in [`../kubernetes/`](../kubernetes/).
+
 ---
 
 ## Table of contents
