@@ -1,0 +1,43 @@
+# dc1 — seed cluster. serverIdBase=1 (IDs 1, 2, 3 for its 3 pods).
+# Loads the base directory tree on pod-0; dc2 pulls it via syncrepl.
+openldap:
+  mode: multi-master
+  replicaCount: 2
+
+  directory:
+    suffix: dc=example,dc=org
+    organization: "CrossCluster Test"
+
+  admin:
+    existingSecret: openldap-admin-shared
+
+  replication:
+    serverIdBase: 1
+    seedOnOrdinalZeroOnly: true
+    replicator:
+      existingSecret: openldap-replicator-shared
+    externalPeers:
+      - ldaps://192.168.58.21:30636       # dc2 NodePort
+
+  tls:
+    enabled: true
+    backend: provided
+    provided:
+      secretName: openldap-tls-shared
+
+  # Expose LDAPS on NodePort 30636 so dc2 can reach it over the private
+  # Vagrant network (192.168.58.0/24). Plaintext LDAP stays cluster-local.
+  service:
+    type: NodePort
+    enableLdapPort: false
+    enableLdapsPort: true
+    ldapsNodePort: 30636
+
+  networkPolicy:
+    enabled: false                        # minikube's default CNI doesn't enforce it
+
+  podDisruptionBudget:
+    enabled: false
+
+  monitoring:
+    enabled: false

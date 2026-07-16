@@ -60,8 +60,14 @@ kubernetes/
 ├── gitops/                        # Argo CD + Flux reference manifests
 │   ├── argocd/
 │   └── flux/
-└── cross-cluster/                 # multi-cluster HA bootstrap runbook
-    └── README.md
+├── cross-cluster/                 # multi-cluster HA bootstrap runbook
+│   └── README.md
+└── tests/
+    └── cross-cluster/             # 2-VM Vagrant + minikube test rig
+        ├── Vagrantfile            # dc1 + dc2 on 192.168.58.0/24
+        ├── install.sh             # gen CA, helm install both DCs
+        ├── test-replication.sh    # write dc1 → read dc2, and back
+        └── README.md
 ```
 
 Start with [`docs/recipes.md`](./docs/recipes.md) — it's the fastest way

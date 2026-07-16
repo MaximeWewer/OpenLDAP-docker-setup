@@ -1,0 +1,41 @@
+# dc2 — joining cluster. serverIdBase=10 (IDs 10, 11 for its 2 pods).
+# Does NOT seed base data; pulls the full tree from dc1 via syncrepl.
+openldap:
+  mode: multi-master
+  replicaCount: 2
+
+  directory:
+    suffix: dc=example,dc=org
+    organization: "CrossCluster Test"
+
+  admin:
+    existingSecret: openldap-admin-shared
+
+  replication:
+    serverIdBase: 10
+    seedOnOrdinalZeroOnly: false          # DO NOT re-seed — pull from dc1
+    replicator:
+      existingSecret: openldap-replicator-shared
+    externalPeers:
+      - ldaps://192.168.58.20:30636       # dc1 NodePort
+
+  tls:
+    enabled: true
+    backend: provided
+    provided:
+      secretName: openldap-tls-shared
+
+  service:
+    type: NodePort
+    enableLdapPort: false
+    enableLdapsPort: true
+    ldapsNodePort: 30636
+
+  networkPolicy:
+    enabled: false
+
+  podDisruptionBudget:
+    enabled: false
+
+  monitoring:
+    enabled: false

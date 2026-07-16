@@ -1,0 +1,67 @@
+# -*- mode: ruby -*-
+# vi: set ft=ruby :
+#
+# Cross-cluster HA test rig for the openldap-stack Helm chart.
+# Two Ubuntu 26.04 VMs, each running a single-node minikube. The chart is
+# installed on both with distinct serverIdBase + external peers pointing
+# at the other VM's NodePort exposing LDAPS.
+#
+#   vagrant up                 # boot both VMs
+#   ./install.sh               # generate CA, distribute, install dc1 then dc2
+#   ./test-replication.sh      # write on dc1, verify replication on dc2
+#   vagrant destroy -f         # tear down
+#
+# The Vagrantfile only boots the VMs + installs the tooling. install.sh
+# drives the actual Helm rollout — that way you can re-run install.sh
+# iteratively without recreating the VMs.
+
+BOX           = ENV.fetch("VAGRANT_BOX", "cloud-image/ubuntu-26.04")
+SUBNET_PREFIX = "192.168.58"
+DC1_IP        = "#{SUBNET_PREFIX}.20"
+DC2_IP        = "#{SUBNET_PREFIX}.21"
+MEMORY        = ENV.fetch("VAGRANT_MEMORY", "6144").to_i
+CPUS          = ENV.fetch("VAGRANT_CPUS", "2").to_i
+
+unless File.respond_to?(:exists?)
+  class << File
+    alias_method :exists?, :exist?
+  end
+end
+
+Vagrant.configure("2") do |config|
+  config.vm.box = BOX
+
+  if Vagrant.has_plugin?("vagrant-vbguest")
+    config.vbguest.auto_update = false
+    config.vbguest.no_install  = true
+  end
+
+  # Only sync the chart tree — VMs don't need the docker/ subdirectory.
+  config.vm.synced_folder "../../..", "/vagrant", type: "rsync",
+    rsync__exclude: [".git/", ".vagrant/",
+                     "docker/",
+                     "kubernetes/tests/cross-cluster/.vagrant/",
+                     "kubernetes/charts/*/charts/*.tgz",
+                     "kubernetes/charts/*/Chart.lock"]
+
+  {
+    "dc1" => DC1_IP,
+    "dc2" => DC2_IP,
+  }.each do |name, ip|
+    config.vm.define name do |node|
+      node.vm.hostname = name
+      node.vm.network "private_network", ip: ip
+
+      node.vm.provider "virtualbox" do |vb|
+        vb.name   = "openldap-k8s-#{name}"
+        vb.memory = MEMORY
+        vb.cpus   = CPUS
+      end
+
+      node.vm.provision "shell", path: "provision.sh", env: {
+        "NODE_NAME" => name,
+        "NODE_IP"   => ip,
+      }
+    end
+  end
+end
