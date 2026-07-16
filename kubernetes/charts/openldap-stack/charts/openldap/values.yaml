@@ -312,44 +312,110 @@ secrets:
     pathPrefix: ""
 
 # =============================================================================
-# Backup (PR 5)
+# Backup — CronJob driving `openldap-cli backup data|config` on a schedule.
 # =============================================================================
 backup:
   enabled: false
   schedule: "0 22 * * *"
-  # Retention in days (find -mtime +N -delete).
+  # Retention in days for local dumps (find -mtime +N -delete). Ignored when
+  # persistence is off — remote-only backups must set retention at the object
+  # store level.
   retentionDays: 30
+
+  # `--operational` includes operational attrs (createTimestamp, entryCSN,
+  # pwdChangedTime, memberOf, …). Useful for disaster recovery on the SAME
+  # topology; drop it when the dump is for import into a different tree.
+  includeOperational: true
+
+  # File name pattern — supports `{{ "{{" }} .date {{ "}}" }}` (UTC YYYYMMDD) and `{{ "{{" }} .kind {{ "}}" }}`
+  # (`data` or `config`). Files are always gzipped (`.gz` triggers automatic
+  # gzip in openldap-cli).
+  fileNamePattern: "{{ .kind }}_{{ .date }}.ldif.gz"
+
   persistence:
     enabled: true
     storageClass: ""
     size: 20Gi
-  # Optional remote destination.
+    accessModes: [ReadWriteOnce]
+    annotations: {}
+    # Set to reuse an existing PVC instead of creating one.
+    existingClaim: ""
+
+  # Optional remote destination — copied AFTER the local dump succeeds.
+  # PR-later: implement mc/aws sync inside the backup script.
   s3:
     enabled: false
     bucket: ""
     endpoint: ""
+    region: ""
     existingSecret: ""
 
+  # Resources for the backup Job's pod.
+  resources:
+    requests: { cpu: 50m, memory: 128Mi }
+    limits:   { cpu: 500m, memory: 512Mi }
+
 # =============================================================================
-# Monitoring (PR 5)
+# Accesslog purge — periodic CronJob calling `openldap-cli ops accesslog-purge`
+# to shrink the accesslog MDB (slapd's built-in olcAccessLogPurge deletes
+# entries but does not reclaim MDB space; this Job does the reclaim).
+# =============================================================================
+accesslogPurgeJob:
+  enabled: false
+  schedule: "0 3 * * 0"          # Sundays at 03:00
+  keepDays: 7
+  # DD+HH:MM — how often to sweep + the age threshold slapd applies.
+  sweep: "00+06:00"
+  dryRun: false
+  resources:
+    requests: { cpu: 50m, memory: 64Mi }
+    limits:   { cpu: 500m, memory: 256Mi }
+
+# =============================================================================
+# Monitoring — Prometheus exporter sidecar + optional ServiceMonitor / rules.
 # =============================================================================
 monitoring:
   enabled: false
+
   exporter:
     image:
-      repository: ghcr.io/maximewewer/openldap-prometheus-exporter
+      repository: ghcr.io/maximewewer/openldap_prometheus_exporter
       tag: latest
       pullPolicy: IfNotPresent
     port: 9330
+
+    # Extra env vars passed to the exporter container — see
+    # https://github.com/MaximeWewer/OpenLDAP_prometheus_exporter for the full
+    # reference (LDAP_TIMEOUT, RATE_LIMIT_*, CIRCUIT_BREAKER_*, …).
+    extraEnv: []
+    # Example:
+    #   - name: LDAP_TIMEOUT
+    #     value: "15"
+    #   - name: OPENLDAP_METRICS_EXCLUDE
+    #     value: "sasl,log"
+
     resources:
       requests: { cpu: 20m, memory: 32Mi }
       limits:   { cpu: 200m, memory: 128Mi }
+
+  # ServiceMonitor CR for prometheus-operator (RH cluster monitoring, kube-
+  # prometheus-stack, VictoriaMetrics operator, …).
   serviceMonitor:
     enabled: false
     interval: 30s
+    scrapeTimeout: 10s
     labels: {}
+    relabelings: []
+    metricRelabelings: []
+
+  # PrometheusRule with sane defaults. Set enabled=true to ship them.
   prometheusRule:
     enabled: false
+    labels: {}
+    rules:
+      # Set to null / [] to skip built-in rules; otherwise the chart emits
+      # `openldap.rules` with baseline alerts.
+      defaultsEnabled: true
 
 # =============================================================================
 # Ingress (PR 6)

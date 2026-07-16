@@ -12,7 +12,7 @@ Nothing outside the release namespace is granted; cluster-scoped access
 is never needed (external-secrets — PR-later — will delegate to ESO's
 own controller SA rather than expanding this Role).
 */ -}}
-{{- if or .Values.users .Values.groups .Values.policies -}}
+{{- if or .Values.users .Values.groups .Values.policies .Values.backup.enabled .Values.accesslogPurgeJob.enabled -}}
 apiVersion: v1
 kind: ServiceAccount
 metadata:

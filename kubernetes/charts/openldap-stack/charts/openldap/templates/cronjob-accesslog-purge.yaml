@@ -1,0 +1,92 @@
+{{- if .Values.accesslogPurgeJob.enabled -}}
+{{- $fullName := include "openldap.fullname" . -}}
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ $fullName }}-accesslog-purge
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "openldap.labels" . | nindent 4 }}
+    app.kubernetes.io/component: accesslog-purge
+spec:
+  schedule: {{ .Values.accesslogPurgeJob.schedule | quote }}
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      ttlSecondsAfterFinished: 86400
+      template:
+        metadata:
+          labels:
+            {{- include "openldap.selectorLabels" . | nindent 12 }}
+            app.kubernetes.io/component: accesslog-purge
+        spec:
+          restartPolicy: OnFailure
+          serviceAccountName: {{ $fullName }}-sync
+          securityContext:
+            runAsNonRoot: false
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: purge
+              image: "{{ .Values.cli.image.repository }}:{{ .Values.cli.image.tag }}"
+              imagePullPolicy: {{ .Values.cli.image.pullPolicy }}
+              command: ["/bin/sh", "-eu", "/scripts/accesslog-purge.sh"]
+              env:
+                - name: RELEASE_NAME
+                  value: {{ .Release.Name | quote }}
+                - name: RELEASE_FULLNAME
+                  value: {{ $fullName | quote }}
+                - name: RELEASE_NAMESPACE
+                  value: {{ .Release.Namespace | quote }}
+                - name: LDAP_URL
+                  value: "ldap://{{ $fullName }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.ldapPort }}"
+                - name: LDAP_BASE_DN
+                  value: {{ .Values.directory.suffix | quote }}
+                - name: LDAP_BIND_DN
+                  value: {{ .Values.admin.bindDN | quote }}
+                - name: LDAP_USER_OU
+                  value: "ou=users"
+                - name: LDAP_GROUP_OU
+                  value: "ou=groups"
+                - name: LDAP_POLICY_OU
+                  value: "ou=policies"
+                - name: LDAP_MAIL_DOMAIN
+                  value: {{ include "openldap.mailDomain" . | quote }}
+                - name: CLI_VERSION
+                  value: {{ .Values.cli.version | quote }}
+                - name: CLI_DOWNLOAD_URL
+                  value: {{ .Values.cli.downloadUrl | quote }}
+                - name: KUBECTL_VERSION
+                  value: {{ .Values.cli.kubectlVersion | quote }}
+                - name: WAIT_TIMEOUT_SECONDS
+                  value: {{ .Values.cli.waitForLdap.timeoutSeconds | quote }}
+                - name: WAIT_INTERVAL_SECONDS
+                  value: {{ .Values.cli.waitForLdap.intervalSeconds | quote }}
+                - name: KEEP_DAYS
+                  value: {{ .Values.accesslogPurgeJob.keepDays | quote }}
+                - name: SWEEP
+                  value: {{ .Values.accesslogPurgeJob.sweep | quote }}
+                - name: DRY_RUN
+                  value: {{ .Values.accesslogPurgeJob.dryRun | quote }}
+              resources:
+                {{- toYaml .Values.accesslogPurgeJob.resources | nindent 16 }}
+              volumeMounts:
+                - name: scripts
+                  mountPath: /scripts
+                  readOnly: true
+                - name: admin-secret
+                  mountPath: /secrets
+                  readOnly: true
+          volumes:
+            - name: scripts
+              configMap:
+                name: {{ $fullName }}-sync-scripts
+                defaultMode: 0555
+            - name: admin-secret
+              secret:
+                secretName: {{ include "openldap.adminSecretName" . }}
+                defaultMode: 0400
+{{- end }}

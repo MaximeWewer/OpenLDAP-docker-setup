@@ -1,0 +1,62 @@
+{{- if and .Values.monitoring.enabled .Values.monitoring.prometheusRule.enabled -}}
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: {{ include "openldap.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "openldap.labels" . | nindent 4 }}
+    {{- with .Values.monitoring.prometheusRule.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  groups:
+    {{- if .Values.monitoring.prometheusRule.rules.defaultsEnabled }}
+    - name: openldap.rules
+      rules:
+        - alert: OpenLDAPDown
+          expr: openldap_up{job=~".*{{ include "openldap.fullname" . }}.*"} == 0
+          for: 3m
+          labels:
+            severity: critical
+          annotations:
+            summary: "OpenLDAP scrape failing ({{ "{{" }} $labels.instance {{ "}}" }})"
+            description: "Exporter reports openldap_up=0 for 3m. Slapd may be down or the config-admin bind is broken."
+
+        - alert: OpenLDAPScrapeErrors
+          expr: increase(openldap_scrape_errors_total[10m]) > 5
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "OpenLDAP scrape errors ({{ "{{" }} $labels.instance {{ "}}" }})"
+            description: "More than 5 scrape errors in 10m."
+
+        - alert: OpenLDAPTLSCertExpiringSoon
+          expr: openldap_tls_cert_not_after_timestamp_seconds - time() < 30 * 24 * 3600
+          for: 30m
+          labels:
+            severity: warning
+          annotations:
+            summary: "OpenLDAP TLS cert expires in less than 30 days"
+            description: "cert on {{ "{{" }} $labels.instance {{ "}}" }} expires at {{ "{{" }} $value | humanizeTimestamp {{ "}}" }}."
+
+        - alert: OpenLDAPReplicationLagHigh
+          expr: max_over_time(openldap_replication_lag_seconds[5m]) > 60
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "OpenLDAP replication lag > 60s ({{ "{{" }} $labels.instance {{ "}}" }})"
+            description: "Peer {{ "{{" }} $labels.peer {{ "}}" }} lag is above 60s for 10m — check network + syncrepl session log."
+
+        - alert: OpenLDAPAccountLockouts
+          expr: increase(openldap_accesslog_account_lock_events_total[5m]) > 3
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "OpenLDAP account lockouts detected"
+            description: "{{ "{{" }} $value {{ "}}" }} account lockout events in the last 5 minutes — possible brute-force or misconfigured client."
+    {{- end }}
+{{- end }}

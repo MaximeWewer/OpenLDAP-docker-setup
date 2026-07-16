@@ -214,6 +214,60 @@ spec:
               mountPath: /etc/openldap/certs
               readOnly: true
             {{- end }}
+        {{- if .Values.monitoring.enabled }}
+        - name: exporter
+          image: "{{ .Values.monitoring.exporter.image.repository }}:{{ .Values.monitoring.exporter.image.tag }}"
+          imagePullPolicy: {{ .Values.monitoring.exporter.image.pullPolicy }}
+          env:
+            - name: LDAP_URL
+              value: "ldap://127.0.0.1:{{ .Values.service.ldapPort }}"
+            - name: LDAP_USERNAME
+              value: {{ .Values.configAdmin.bindDN | quote }}
+            - name: LDAP_PASSWORD_FILE
+              value: /secrets/config-admin-password
+            - name: LDAP_SERVER_NAME
+              value: {{ include "openldap.fullname" . | quote }}
+            - name: LISTEN_ADDRESS
+              value: ":{{ .Values.monitoring.exporter.port }}"
+            {{- with .Values.monitoring.exporter.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          ports:
+            - name: metrics
+              containerPort: {{ .Values.monitoring.exporter.port }}
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: metrics
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: metrics
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          securityContext:
+            # Image's USER is "nonroot" (name, not numeric UID) — Kubernetes
+            # cannot verify against runAsNonRoot, so pin the UID explicitly
+            # (distroless nonroot = 65532).
+            runAsUser: 65532
+            runAsGroup: 65532
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+            readOnlyRootFilesystem: true
+          resources:
+            {{- toYaml .Values.monitoring.exporter.resources | nindent 12 }}
+          volumeMounts:
+            - name: admin-secret
+              mountPath: /secrets
+              readOnly: true
+        {{- end }}
       volumes:
         - name: bootstrap
           configMap:

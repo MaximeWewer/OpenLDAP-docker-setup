@@ -5,7 +5,7 @@ download openldap-cli + kubectl, then run one of the scripts below.
 
 Each script is idempotent — safe to re-run on every `helm upgrade`.
 */ -}}
-{{- if or .Values.users .Values.groups .Values.policies -}}
+{{- if or .Values.users .Values.groups .Values.policies .Values.backup.enabled .Values.accesslogPurgeJob.enabled -}}
 {{- $suffix := .Values.directory.suffix -}}
 {{- $userOU := "ou=users" -}}
 {{- $groupOU := "ou=groups" -}}
@@ -353,4 +353,63 @@ data:
       fi
     done
     LOG "groups sync done"
+
+  # ---------------------------------------------------------------------------
+  # backup.sh — dump the data + config databases to /backup as gzipped LDIF.
+  #   * File names follow the values `backup.fileNamePattern` (already resolved
+  #     into KIND_FILENAME / DATA_FILENAME env vars by the CronJob spec).
+  #   * Retention: after a successful dump, prune files older than
+  #     ${RETENTION_DAYS} in /backup.
+  # ---------------------------------------------------------------------------
+  backup.sh: |
+    #!/bin/sh
+    set -eu
+    . /scripts/common.sh
+    wait_for_ldap
+
+    : "${DATA_FILENAME:?}"; : "${CONFIG_FILENAME:?}"; : "${RETENTION_DAYS:?}"
+    DATA_ARGS=""
+    [ "${INCLUDE_OPERATIONAL:-true}" = "true" ] && DATA_ARGS="--operational"
+
+    mkdir -p /backup
+    LOG "backup data -> /backup/${DATA_FILENAME}"
+    # shellcheck disable=SC2086
+    openldap-cli backup data /backup/"${DATA_FILENAME}" $DATA_ARGS
+
+    LOG "backup config -> /backup/${CONFIG_FILENAME}"
+    # config backup requires the cn=config admin — inject its creds temporarily.
+    LDAP_CONFIG_BIND_DN="${LDAP_CONFIG_BIND_DN:-cn=adminconfig,cn=config}" \
+    LDAP_CONFIG_BIND_PW="$(cat /secrets/config-admin-password)" \
+      openldap-cli backup config /backup/"${CONFIG_FILENAME}"
+
+    LOG "pruning /backup for files older than ${RETENTION_DAYS} days"
+    find /backup -type f \
+      \( -name '*.ldif.gz' -o -name '*.ldif' -o -name '*.tar.gz' \) \
+      -mtime "+${RETENTION_DAYS}" -delete -print
+    LOG "backup done"
+
+  # ---------------------------------------------------------------------------
+  # accesslog-purge.sh — reclaim cn=accesslog MDB space.
+  #   `--sweep DD+HH:MM`  drives how often + how deep slapd purges.
+  #   `--keep-days N`     minimum retention.
+  #   `--dry-run`         no writes, only report what would be deleted.
+  # ---------------------------------------------------------------------------
+  accesslog-purge.sh: |
+    #!/bin/sh
+    set -eu
+    . /scripts/common.sh
+    wait_for_ldap
+
+    : "${KEEP_DAYS:?}"; : "${SWEEP:?}"
+    ARGS="--keep-days ${KEEP_DAYS} --sweep ${SWEEP}"
+    [ "${DRY_RUN:-false}" = "true" ] && ARGS="${ARGS} --dry-run"
+
+    # The purge writes cn=config; use the config-admin credentials.
+    export LDAP_CONFIG_BIND_DN="${LDAP_CONFIG_BIND_DN:-cn=adminconfig,cn=config}"
+    export LDAP_CONFIG_BIND_PW="$(cat /secrets/config-admin-password)"
+
+    LOG "ops accesslog-purge ${ARGS}"
+    # shellcheck disable=SC2086
+    openldap-cli ops accesslog-purge ${ARGS}
+    LOG "accesslog purge done"
 {{- end }}

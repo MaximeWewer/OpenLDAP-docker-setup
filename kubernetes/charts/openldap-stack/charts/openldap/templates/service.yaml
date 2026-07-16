@@ -28,3 +28,9 @@ spec:
       targetPort: ldaps
       protocol: TCP
     {{- end }}
+    {{- if .Values.monitoring.enabled }}
+    - name: metrics
+      port: {{ .Values.monitoring.exporter.port }}
+      targetPort: metrics
+      protocol: TCP
+    {{- end }}

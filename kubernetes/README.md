@@ -12,8 +12,8 @@ Incremental scaffold. Track progress against the roadmap below.
 |----|-------|--------|
 | 2 | Scaffold umbrella chart + `openldap` subchart (standalone MVP) | done |
 | 3 | HA modes (mirror, multi-master, cross-cluster external peers) | done |
-| 4 | Users / groups / ppolicy sync jobs + password Secret backend | current |
-| 5 | Backup CronJob + accesslog-purge + Prometheus exporter sidecar | pending |
+| 4 | Users / groups / ppolicy sync jobs + password Secret backend | done |
+| 5 | Backup CronJob + accesslog-purge + Prometheus exporter sidecar | current |
 | 6 | Ingress (ingress-nginx + Gateway API) + cert-manager / cert Job | pending |
 | 7 | Hardening pass (NetworkPolicy, PSA restricted, PDB, seccomp) | pending |
 | 8 | `phpldapadmin` subchart | pending |
@@ -90,6 +90,79 @@ The sync Jobs install `openldap-cli` + `kubectl` from GitHub / dl.k8s.io
 into a plain Alpine image at Job startup — no custom image build needed.
 Their ServiceAccount is scoped strictly to Secret CRUD in the release
 namespace (see `templates/rbac-sync.yaml`).
+
+## Backup & retention
+
+`openldap.backup.enabled: true` provisions a daily CronJob that dumps the
+data and cn=config databases as gzipped LDIF via `openldap-cli backup`.
+Files land on a chart-managed PVC (or an existing one via
+`persistence.existingClaim`) and are pruned after
+`openldap.backup.retentionDays` days.
+
+```yaml
+openldap:
+  backup:
+    enabled: true
+    schedule: "0 22 * * *"        # every night at 22:00
+    retentionDays: 30
+    persistence:
+      size: 20Gi
+      storageClass: ""            # cluster default
+    includeOperational: true      # pass --operational to backup data
+```
+
+Restoring: `kubectl cp` a dump out of the PVC, then run
+`openldap-cli backup restore <file>` against a fresh install.
+
+## Accesslog purge
+
+The slapd built-in `olcAccessLogPurge` deletes accesslog entries but does
+NOT reclaim MDB space (LMDB is copy-on-write, deleted pages stay allocated
+until an offline reload). `openldap.accesslogPurgeJob.enabled: true`
+schedules a weekly `openldap-cli ops accesslog-purge` that shrinks the
+accesslog MDB in place.
+
+```yaml
+openldap:
+  accesslogPurgeJob:
+    enabled: true
+    schedule: "0 3 * * 0"         # Sundays 03:00
+    keepDays: 7
+    sweep: "00+06:00"
+```
+
+## Prometheus monitoring
+
+`openldap.monitoring.enabled: true` adds a sidecar
+[OpenLDAP_prometheus_exporter](https://github.com/MaximeWewer/OpenLDAP_prometheus_exporter)
+to every StatefulSet pod, publishes port 9330 on the LDAP Service, and
+optionally emits a `ServiceMonitor` + `PrometheusRule` for
+prometheus-operator installs.
+
+```yaml
+openldap:
+  monitoring:
+    enabled: true
+    exporter:
+      extraEnv:
+        - name: OPENLDAP_METRICS_EXCLUDE
+          value: "sasl,log"
+    serviceMonitor:
+      enabled: true
+      interval: 30s
+      labels:
+        release: kube-prometheus-stack
+    prometheusRule:
+      enabled: true
+```
+
+Default alerts shipped with `prometheusRule.enabled=true`: `OpenLDAPDown`,
+`OpenLDAPScrapeErrors`, `OpenLDAPTLSCertExpiringSoon`,
+`OpenLDAPReplicationLagHigh`, `OpenLDAPAccountLockouts`.
+
+The exporter binds as `cn=adminconfig,cn=config` (config-admin has the
+`cn=Monitor` read ACL seeded by bootstrap); its password is read from the
+same `<release>-openldap-admin` Secret via `LDAP_PASSWORD_FILE`.
 
 ## HA modes
 
