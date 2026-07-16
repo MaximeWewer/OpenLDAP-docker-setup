@@ -11,8 +11,8 @@ Incremental scaffold. Track progress against the roadmap below.
 | PR | Scope | Status |
 |----|-------|--------|
 | 2 | Scaffold umbrella chart + `openldap` subchart (standalone MVP) | done |
-| 3 | HA modes (mirror, multi-master, cross-cluster external peers) | current |
-| 4 | Users / groups / ppolicy sync jobs + password Secret backend | pending |
+| 3 | HA modes (mirror, multi-master, cross-cluster external peers) | done |
+| 4 | Users / groups / ppolicy sync jobs + password Secret backend | current |
 | 5 | Backup CronJob + accesslog-purge + Prometheus exporter sidecar | pending |
 | 6 | Ingress (ingress-nginx + Gateway API) + cert-manager / cert Job | pending |
 | 7 | Hardening pass (NetworkPolicy, PSA restricted, PDB, seccomp) | pending |
@@ -37,6 +37,59 @@ kubernetes/
 
 Later PRs add `charts/openldap-stack/charts/phpldapadmin/` and
 `charts/openldap-stack/charts/self-service-password/`.
+
+## Users, groups & policies (GitOps)
+
+`openldap.users`, `openldap.groups` and `openldap.policies` are the declarative
+source of truth for the directory content. On every `helm install/upgrade`
+three post-install/upgrade Jobs (`ppolicy` → weight 5, `users` → 10,
+`groups` → 15) drive [openldap-cli](https://github.com/MaximeWewer/openldap-cli)
+against the LDAP Service to reconcile the tree with the values.
+
+- **Passwords are auto-generated per user** (`openssl rand`) unless a
+  Secret is referenced via `existingSecret`. Generated passwords are
+  stored under `<release>-openldap-user-<uid>` (key `password`) with
+  the label `openldap.stack/user=<uid>` — the chart never reads them back
+  itself, admins retrieve them once via `kubectl get secret`.
+- **Attributes reconcile** on every upgrade (`openldap-cli user set …`),
+  so editing values.yaml is the update path.
+- **Drift cleanup** — a user removed from `openldap.users` is either
+  hard-deleted (`onUserRemove: delete`, default) or locked via
+  `pwdAccountLockedTime` (`onUserRemove: lock`). Same knob for groups
+  via `onGroupRemove`.
+- **Group membership** is expressed on the group side (`groups[*].members`
+  is a list of UIDs); the `memberOf` overlay auto-populates the user
+  entry so both directions stay consistent.
+- **ppolicy templates** are set via `openldap-cli ppolicy set` — the
+  entry keys map 1:1 to the CLI flags (`min-length`, `max-age`,
+  `lockout`, …), and `users[].policy` triggers a `ppolicy assign`.
+
+```yaml
+openldap:
+  users:
+    - uid: alice
+      givenName: Alice
+      sn: Wonderland
+      mail: alice@example.org
+      policy: strong        # optional — matches a policy cn below
+      attrs:                # optional — free-form extra --set k=v
+        title: Engineer
+  groups:
+    - cn: devs
+      description: Development team
+      members: [alice, bob] # UIDs (must be declared in users OR exist in LDAP)
+  policies:
+    - cn: strong
+      min-length: 12
+      max-age: 7776000
+      max-failure: 5
+      lockout: true
+```
+
+The sync Jobs install `openldap-cli` + `kubectl` from GitHub / dl.k8s.io
+into a plain Alpine image at Job startup — no custom image build needed.
+Their ServiceAccount is scoped strictly to Secret CRUD in the release
+namespace (see `templates/rbac-sync.yaml`).
 
 ## HA modes
 
