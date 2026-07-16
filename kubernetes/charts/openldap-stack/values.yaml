@@ -1,0 +1,32 @@
+# =============================================================================
+# openldap-stack — umbrella values
+# =============================================================================
+# Each subchart is toggleable and its full values tree is accepted under its
+# name. Cross-cutting keys (directory suffix, TLS Secret, etc.) are duplicated
+# under each subchart where needed — Helm does not share values across
+# subcharts, so keep them in sync via `helm upgrade --set` or a single overlay.
+# =============================================================================
+
+openldap:
+  enabled: true
+
+  # ---------------------------------------------------------------------------
+  # See kubernetes/charts/openldap-stack/charts/openldap/values.yaml for the
+  # full documented value tree. Override any key here to change the default.
+  # Example:
+  #   openldap:
+  #     directory:
+  #       suffix: dc=corp,dc=example,dc=com
+  #     admin:
+  #       existingSecret: openldap-admin-passwords
+  #     persistence:
+  #       size: 50Gi
+  # ---------------------------------------------------------------------------
+
+# PR 8 — placeholder, not shipped yet.
+phpldapadmin:
+  enabled: false
+
+# PR 9 — placeholder, not shipped yet.
+selfServicePassword:
+  enabled: false

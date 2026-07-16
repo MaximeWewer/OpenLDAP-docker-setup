@@ -1,0 +1,30 @@
+{{- /*
+Client-facing service — the DNS name applications should use. Round-robins
+across ready pods in HA modes; single backend in standalone.
+*/ -}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "openldap.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "openldap.labels" . | nindent 4 }}
+  {{- with .Values.service.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  type: {{ .Values.service.type }}
+  selector:
+    {{- include "openldap.selectorLabels" . | nindent 4 }}
+  ports:
+    - name: ldap
+      port: {{ .Values.service.ldapPort }}
+      targetPort: ldap
+      protocol: TCP
+    {{- if .Values.tls.enabled }}
+    - name: ldaps
+      port: {{ .Values.service.ldapsPort }}
+      targetPort: ldaps
+      protocol: TCP
+    {{- end }}

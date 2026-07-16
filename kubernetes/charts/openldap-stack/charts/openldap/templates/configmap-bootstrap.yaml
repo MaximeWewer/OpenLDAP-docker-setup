@@ -1,0 +1,221 @@
+{{- /*
+Bootstrap ConfigMap — holds:
+  * bootstrap.sh          — initContainer entrypoint (idempotent).
+  * slapd-config.ldif     — cn=config seed, Helm-templated for values-driven
+                            knobs (suffix, ppolicy DN, DB sizes, accesslog).
+                            Runtime placeholders __ADMIN_PW_HASH__ and
+                            __CONFIG_ADMIN_PW_HASH__ are substituted by
+                            bootstrap.sh (never persisted in cleartext).
+  * base-data.ldif        — dc=<suffix> + OUs. Users/groups are added by
+                            downstream Jobs (PR 4).
+*/ -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "openldap.fullname" . }}-bootstrap
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "openldap.labels" . | nindent 4 }}
+data:
+  bootstrap.sh: |
+    #!/bin/sh
+    set -euo pipefail 2>/dev/null || set -eu
+
+    SLAPD_D=/etc/openldap/slapd.d
+    MDB_DIR=/var/lib/openldap/openldap-data
+    ACCESSLOG_DIR=/var/lib/openldap/accesslog-data
+    OWNER="${OWNER_UID:-101}:${OWNER_GID:-102}"
+
+    # Alpine base image — install slapd tools (idempotent, no-op if cached).
+    if ! command -v slapadd >/dev/null 2>&1; then
+      echo "[bootstrap] Installing packages: ${APK_PACKAGES}"
+      apk add --no-cache ${APK_PACKAGES} >/dev/null
+    fi
+
+    # Idempotence: cn=config.ldif is the canonical marker that slapadd -n0 ran.
+    if [ -f "${SLAPD_D}/cn=config.ldif" ]; then
+      echo "[bootstrap] cn=config already present, skipping initialisation."
+      # Ownership drift can still be repaired safely.
+      chown -R "${OWNER}" "${SLAPD_D}" "${MDB_DIR}" "${ACCESSLOG_DIR}"
+      exit 0
+    fi
+
+    if [ ! -f /secrets/admin-password ] || [ ! -f /secrets/config-admin-password ]; then
+      echo "[bootstrap] Admin secrets missing under /secrets" >&2
+      exit 1
+    fi
+
+    ADMIN_HASH=$(slappasswd -s "$(cat /secrets/admin-password)")
+    CONFIG_HASH=$(slappasswd -s "$(cat /secrets/config-admin-password)")
+
+    mkdir -p "${SLAPD_D}" "${MDB_DIR}" "${ACCESSLOG_DIR}"
+
+    # Render cn=config with runtime password hashes (never on disk in plain).
+    RENDERED_CONFIG=$(mktemp)
+    RENDERED_DATA=$(mktemp)
+    trap 'rm -f "${RENDERED_CONFIG}" "${RENDERED_DATA}"' EXIT
+    sed -e "s|__ADMIN_PW_HASH__|${ADMIN_HASH}|" \
+        -e "s|__CONFIG_ADMIN_PW_HASH__|${CONFIG_HASH}|" \
+        /bootstrap/slapd-config.ldif > "${RENDERED_CONFIG}"
+
+    echo "[bootstrap] Loading cn=config"
+    slapadd -n 0 -F "${SLAPD_D}" -l "${RENDERED_CONFIG}"
+
+    cp /bootstrap/base-data.ldif "${RENDERED_DATA}"
+
+    echo "[bootstrap] Loading base directory data"
+    slapadd -n 1 -F "${SLAPD_D}" -l "${RENDERED_DATA}"
+
+    echo "[bootstrap] chown -R ${OWNER}"
+    chown -R "${OWNER}" "${SLAPD_D}" "${MDB_DIR}" "${ACCESSLOG_DIR}"
+
+    echo "[bootstrap] Done."
+
+  slapd-config.ldif: |
+    dn: cn=config
+    objectClass: olcGlobal
+    cn: config
+    olcPidFile: /run/openldap/slapd.pid
+    olcArgsFile: /run/openldap/slapd.args
+    {{- if .Values.tls.enabled }}
+    olcTLSCACertificateFile: /etc/openldap/certs/ca.crt
+    olcTLSCertificateFile: /etc/openldap/certs/tls.crt
+    olcTLSCertificateKeyFile: /etc/openldap/certs/tls.key
+    olcTLSVerifyClient: never
+    {{- end }}
+    {{- if gt (int .Values.tls.minSSF) 0 }}
+    olcSecurity: ssf={{ .Values.tls.minSSF }}
+    {{- end }}
+    {{- if .Values.tls.disallowPlainBind }}
+    olcDisallows: bind_anon
+    {{- end }}
+
+    dn: cn=module{{ "{" }}0{{ "}" }},cn=config
+    objectClass: olcModuleList
+    cn: module{{ "{" }}0{{ "}" }}
+    olcModulePath: /usr/lib/openldap
+    olcModuleLoad: back_mdb.so
+    olcModuleLoad: memberof.so
+    olcModuleLoad: refint.so
+    olcModuleLoad: ppolicy.so
+    olcModuleLoad: dynlist.so
+    olcModuleLoad: accesslog.so
+    {{- if eq .Values.mode "mirror" | or (eq .Values.mode "multi-master") }}
+    olcModuleLoad: syncprov.so
+    {{- end }}
+
+    dn: cn=schema,cn=config
+    objectClass: olcSchemaConfig
+    cn: schema
+
+    include: file:///etc/openldap/schema/core.ldif
+    include: file:///etc/openldap/schema/cosine.ldif
+    include: file:///etc/openldap/schema/inetorgperson.ldif
+    include: file:///etc/openldap/schema/dyngroup.ldif
+
+    dn: olcDatabase={{ "{" }}-1{{ "}" }}frontend,cn=config
+    objectClass: olcDatabaseConfig
+    objectClass: olcFrontendConfig
+    olcDatabase: {{ "{" }}-1{{ "}" }}frontend
+
+    dn: olcDatabase={{ "{" }}0{{ "}" }}config,cn=config
+    objectClass: olcDatabaseConfig
+    olcDatabase: {{ "{" }}0{{ "}" }}config
+    olcRootDN: {{ .Values.configAdmin.bindDN }}
+    olcRootPW: __CONFIG_ADMIN_PW_HASH__
+    olcAccess: {{ "{" }}0{{ "}" }}to * by dn.exact="{{ .Values.configAdmin.bindDN }}" manage by * none
+
+    dn: olcDatabase={{ "{" }}1{{ "}" }}mdb,cn=config
+    objectClass: olcDatabaseConfig
+    objectClass: olcMdbConfig
+    olcDatabase: {{ "{" }}1{{ "}" }}mdb
+    olcSuffix: {{ .Values.directory.suffix }}
+    olcDbDirectory: /var/lib/openldap/openldap-data
+    olcRootDN: {{ .Values.admin.bindDN }}
+    olcRootPW: __ADMIN_PW_HASH__
+    olcDbMaxSize: {{ int64 .Values.database.main.maxSizeBytes }}
+    olcDbIndex: objectClass eq
+    olcDbIndex: cn,sn,uid eq,pres,sub
+    olcDbIndex: mail eq,sub
+    olcDbIndex: member eq
+    olcDbIndex: memberOf eq
+    olcMonitoring: TRUE
+    olcAccess: {{ "{" }}0{{ "}" }}to attrs=userPassword by self write by dn.exact="{{ .Values.admin.bindDN }}" write by anonymous auth by * none
+    olcAccess: {{ "{" }}1{{ "}" }}to dn.subtree="ou=policies,{{ .Values.directory.suffix }}" by * read
+    olcAccess: {{ "{" }}2{{ "}" }}to dn.subtree="{{ .Values.directory.suffix }}" by dn.exact="{{ .Values.admin.bindDN }}" write by users read by * none
+
+    dn: olcOverlay=memberof,olcDatabase={{ "{" }}1{{ "}" }}mdb,cn=config
+    objectClass: olcOverlayConfig
+    objectClass: olcMemberOf
+    olcOverlay: memberof
+    olcMemberOfRefInt: TRUE
+    olcMemberOfGroupOC: groupOfNames
+    olcMemberOfMemberAD: member
+    olcMemberOfMemberOfAD: memberOf
+
+    dn: olcOverlay=refint,olcDatabase={{ "{" }}1{{ "}" }}mdb,cn=config
+    objectClass: olcOverlayConfig
+    objectClass: olcRefintConfig
+    olcOverlay: refint
+    olcRefintAttribute: uniqueMember
+    olcRefintAttribute: member
+    olcRefintAttribute: memberOf
+    {{ if .Values.ppolicy.enabled }}
+    dn: olcOverlay=ppolicy,olcDatabase={{ "{" }}1{{ "}" }}mdb,cn=config
+    objectClass: olcOverlayConfig
+    objectClass: olcPPolicyConfig
+    olcOverlay: ppolicy
+    olcPPolicyDefault: {{ .Values.ppolicy.defaultPolicyRDN }},ou=policies,{{ .Values.directory.suffix }}
+    olcPPolicyHashCleartext: {{ ternary "TRUE" "FALSE" .Values.ppolicy.hashCleartext }}
+    {{ end }}
+    dn: olcOverlay=dynlist,olcDatabase={{ "{" }}1{{ "}" }}mdb,cn=config
+    objectClass: olcOverlayConfig
+    objectClass: olcDynListConfig
+    olcOverlay: dynlist
+    olcDynListAttrSet: groupOfUrls memberURL member+memberOf@groupOfNames
+
+    dn: olcDatabase={{ "{" }}2{{ "}" }}mdb,cn=config
+    objectClass: olcDatabaseConfig
+    objectClass: olcMdbConfig
+    olcDatabase: {{ "{" }}2{{ "}" }}mdb
+    olcSuffix: cn=accesslog
+    olcDbDirectory: /var/lib/openldap/accesslog-data
+    olcRootDN: {{ .Values.configAdmin.bindDN }}
+    olcDbMaxSize: {{ int64 .Values.database.accesslog.maxSizeBytes }}
+    olcDbIndex: reqStart eq
+    olcDbIndex: reqDN eq
+    olcDbIndex: reqType eq
+    olcDbIndex: reqResult eq
+    olcAccess: {{ "{" }}0{{ "}" }}to * by dn.exact="{{ .Values.configAdmin.bindDN }}" read by * none
+
+    dn: olcOverlay=accesslog,olcDatabase={{ "{" }}1{{ "}" }}mdb,cn=config
+    objectClass: olcOverlayConfig
+    objectClass: olcAccessLogConfig
+    olcOverlay: accesslog
+    olcAccessLogDB: cn=accesslog
+    olcAccessLogOps: {{ .Values.accesslog.ops }}
+    olcAccessLogSuccess: {{ ternary "TRUE" "FALSE" .Values.accesslog.logSuccess }}
+    olcAccessLogPurge: {{ .Values.accesslog.purge }}
+
+    dn: olcDatabase={{ "{" }}3{{ "}" }}monitor,cn=config
+    objectClass: olcDatabaseConfig
+    objectClass: olcMonitorConfig
+    olcDatabase: {{ "{" }}3{{ "}" }}monitor
+    olcAccess: {{ "{" }}0{{ "}" }}to dn.subtree="cn=Monitor" by dn.exact="{{ .Values.configAdmin.bindDN }}" read by * none
+    olcMonitoring: TRUE
+
+  base-data.ldif: |
+    dn: {{ .Values.directory.suffix }}
+    objectClass: top
+    objectClass: dcObject
+    objectClass: organization
+    o: {{ .Values.directory.organization }}
+    dc: {{ (split "," .Values.directory.suffix)._0 | trimPrefix "dc=" }}
+    {{- if .Values.directory.description }}
+    description: {{ .Values.directory.description }}
+    {{- end }}
+    {{ range .Values.directory.organizationalUnits }}
+    dn: ou={{ . }},{{ $.Values.directory.suffix }}
+    objectClass: organizationalUnit
+    ou: {{ . }}
+    {{ end }}

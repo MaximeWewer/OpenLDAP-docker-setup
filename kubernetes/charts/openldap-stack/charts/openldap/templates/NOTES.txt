@@ -1,0 +1,40 @@
+OpenLDAP {{ .Chart.AppVersion }} installed as release "{{ .Release.Name }}" in namespace "{{ .Release.Namespace }}".
+
+Mode:        {{ .Values.mode }}
+Replicas:    {{ .Values.replicaCount }}
+Suffix:      {{ .Values.directory.suffix }}
+Admin DN:    {{ .Values.admin.bindDN }}
+Config DN:   {{ .Values.configAdmin.bindDN }}
+Service:     {{ include "openldap.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.ldapPort }}
+
+{{ if .Values.admin.existingSecret -}}
+Admin credentials sourced from user-provided Secret: {{ .Values.admin.existingSecret }}
+{{- else -}}
+Retrieve auto-generated admin passwords:
+
+  kubectl -n {{ .Release.Namespace }} get secret {{ include "openldap.fullname" . }}-admin \
+    -o jsonpath='{.data.admin-password}' | base64 -d ; echo
+  kubectl -n {{ .Release.Namespace }} get secret {{ include "openldap.fullname" . }}-admin \
+    -o jsonpath='{.data.config-admin-password}' | base64 -d ; echo
+{{- end }}
+
+Test bind (port-forward):
+
+  kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "openldap.fullname" . }} {{ .Values.service.ldapPort }}:{{ .Values.service.ldapPort }} &
+  ldapsearch -x -H ldap://localhost:{{ .Values.service.ldapPort }} \
+    -D {{ .Values.admin.bindDN }} -W \
+    -b {{ .Values.directory.suffix }} '(objectClass=*)'
+
+Companion CLI: https://github.com/MaximeWewer/openldap-cli
+  ~/.openldap-cli.yaml example:
+    default: {{ .Release.Name }}
+    profiles:
+      {{ .Release.Name }}:
+        url: ldap://localhost:{{ .Values.service.ldapPort }}
+        base_dn: {{ .Values.directory.suffix }}
+        bind_dn: {{ .Values.admin.bindDN }}
+        # bind_pw: <fetched from Secret above>
+        config_bind_dn: {{ .Values.configAdmin.bindDN }}
+
+Roadmap for HA, users/groups sync, backup, monitoring, TLS, ingress and
+hardening: kubernetes/README.md

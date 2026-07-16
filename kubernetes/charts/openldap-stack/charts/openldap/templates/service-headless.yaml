@@ -1,0 +1,33 @@
+{{- /*
+Headless service — required by the StatefulSet for stable per-pod DNS records
+(<pod>.<headless>.<ns>.svc.cluster.local). Peer discovery for HA modes (PR 3)
+relies on these names.
+*/ -}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "openldap.headlessServiceName" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "openldap.labels" . | nindent 4 }}
+  {{- with .Values.headlessService.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  type: ClusterIP
+  clusterIP: None
+  publishNotReadyAddresses: true
+  selector:
+    {{- include "openldap.selectorLabels" . | nindent 4 }}
+  ports:
+    - name: ldap
+      port: {{ .Values.service.ldapPort }}
+      targetPort: ldap
+      protocol: TCP
+    {{- if .Values.tls.enabled }}
+    - name: ldaps
+      port: {{ .Values.service.ldapsPort }}
+      targetPort: ldaps
+      protocol: TCP
+    {{- end }}

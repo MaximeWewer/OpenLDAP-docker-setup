@@ -1,0 +1,343 @@
+# =============================================================================
+# openldap subchart — values
+# =============================================================================
+# MVP (PR 2): standalone mode only. HA (mirror / multi-master / cross-cluster),
+# users/groups/ppolicy sync, backup, monitoring, TLS, ingress and hardening
+# knobs are declared here but implemented in later PRs — they are documented
+# with a "(PR N)" marker to preview the final shape without surprising anyone.
+# =============================================================================
+
+image:
+  # Runtime image — distroless, only runs slapd.
+  repository: cleanstart/openldap
+  tag: "2.6.13"
+  pullPolicy: IfNotPresent
+
+# Bootstrap init image — needs a shell + slappasswd + slapadd.
+# Alpine's openldap package ships all required binaries and schemas; the
+# initContainer installs them at runtime so no custom image build is needed.
+initImage:
+  repository: alpine
+  tag: "3.19"
+  pullPolicy: IfNotPresent
+  # Additional apk packages to install for the bootstrap (kept minimal).
+  packages: "openldap openldap-clients openldap-back-mdb openldap-overlay-all"
+
+# StatefulSet replicas.
+#   standalone     -> replicaCount MUST be 1
+#   mirror         -> replicaCount MUST be 2 (PR 3)
+#   multi-master   -> replicaCount >= 2 (PR 3)
+replicaCount: 1
+
+# Deployment topology.
+#   standalone   -> single pod, no replication
+#   mirror       -> 2 pods, MirrorMode active/passive with delta-syncrepl (PR 3)
+#   multi-master -> N-way multi-master with delta-syncrepl (PR 3)
+mode: standalone
+
+# =============================================================================
+# Directory
+# =============================================================================
+directory:
+  suffix: dc=example,dc=org
+  organization: Example Org
+
+  # If set, added to the root entry as `description`.
+  description: ""
+
+  # Base OUs created during bootstrap.
+  # Names are relative to the suffix (dc=example,dc=org -> ou=users,dc=example,dc=org).
+  organizationalUnits:
+    - users
+    - groups
+    - service-accounts
+    - policies
+
+# =============================================================================
+# Admin credentials
+# =============================================================================
+admin:
+  # Data admin — rootDN of the main MDB database.
+  bindDN: cn=admin,dc=example,dc=org
+
+  # If a Secret named `existingSecret` exists in the release namespace it MUST
+  # carry two keys: `admin-password` and `config-admin-password`. Otherwise the
+  # chart generates random 32-char passwords on first install and stores them
+  # in a Secret named `<fullname>-admin`, preserved across `helm upgrade` via a
+  # lookup + fallback pattern.
+  existingSecret: ""
+
+configAdmin:
+  # cn=config rootDN (used for cn=config edits + admin over the config backend).
+  bindDN: cn=adminconfig,cn=config
+
+# =============================================================================
+# Persistence
+# =============================================================================
+# Single PVC per replica, three subPath mounts:
+#   slapd.d/          -> /etc/openldap/slapd.d
+#   openldap-data/    -> /var/lib/openldap/openldap-data
+#   accesslog-data/   -> /var/lib/openldap/accesslog-data
+persistence:
+  enabled: true
+  storageClass: ""
+  size: 10Gi
+  accessModes:
+    - ReadWriteOnce
+  # Additional annotations to set on the PVCs created by volumeClaimTemplates.
+  annotations: {}
+
+# =============================================================================
+# Database sizing (LMDB mapsize)
+# =============================================================================
+database:
+  # Suffix DB (dc=…).
+  main:
+    maxSizeBytes: 1073741824    # 1 GiB
+  # cn=accesslog DB — grows with bind + write traffic.
+  accesslog:
+    maxSizeBytes: 1073741824    # 1 GiB
+
+# =============================================================================
+# Access log overlay (bind audit + delta-syncrepl feeder)
+# =============================================================================
+accesslog:
+  # Operations to log: writes | bind | reads | all
+  ops: "writes bind"
+  logSuccess: false
+  # Purge cadence — DD+HH:MM DD+HH:MM (interval before delete + oldest-to-keep).
+  purge: "07+00:00 01+00:00"
+
+# =============================================================================
+# ppolicy overlay
+# =============================================================================
+ppolicy:
+  enabled: true
+  defaultPolicyRDN: cn=defaultppolicy    # relative to ou=policies,<suffix>
+  hashCleartext: true
+
+# =============================================================================
+# Networking
+# =============================================================================
+service:
+  type: ClusterIP
+  ldapPort: 389
+  ldapsPort: 636
+  annotations: {}
+
+# Headless service backing the StatefulSet (peer discovery for HA).
+headlessService:
+  annotations: {}
+
+# =============================================================================
+# TLS (PR 6)
+# =============================================================================
+tls:
+  enabled: false
+  # cert-manager | job | provided
+  backend: cert-manager
+
+  certManager:
+    issuerRef:
+      name: ""
+      kind: ClusterIssuer
+    duration: 8760h            # 1 year
+    renewBefore: 720h          # 30 days
+    dnsNames: []               # additional SANs
+
+  job:
+    caValidityDays: 3650
+    certValidityDays: 365
+    renewThresholdDays: 30
+    schedule: "0 4 * * 1"
+
+  provided:
+    # Secret with tls.crt, tls.key and ca.crt keys (pre-created).
+    secretName: ""
+
+  # Reject bind sessions below this SSF (0 disables the requirement).
+  minSSF: 0
+  # Require StartTLS or LDAPS (disallow anonymous cleartext bind).
+  disallowPlainBind: false
+
+# =============================================================================
+# Replication (PR 3)
+# =============================================================================
+replication:
+  enabled: false
+  # In-cluster peers are derived from the StatefulSet headless service.
+  # externalPeers lists reachable LDAPS URLs of OpenLDAP replicas hosted on
+  # other clusters or bare-metal nodes, e.g.
+  #   - ldaps://ldap.dc2.example.com:636
+  externalPeers: []
+
+  # Delta-syncrepl retry policy: <interval> <retries> <sleep> <retries2>.
+  retry: "5 60 60 +"
+
+# =============================================================================
+# Users / groups / ppolicy templates (PR 4)
+# =============================================================================
+# Each list entry becomes an idempotent `openldap-cli` Job invocation
+# (post-install / post-upgrade hook). Existing entries are re-applied with
+# `user modify` on upgrade; passwords are generated in-cluster and stored in
+# per-user Secrets or ExternalSecret refs.
+users: []
+groups: []
+policies: []
+
+# What happens when a user is removed from the values.yaml on upgrade.
+#   delete -> `openldap-cli user delete`
+#   lock   -> `openldap-cli policy lock` (pwdAccountLockedTime)
+onUserRemove: delete
+
+# =============================================================================
+# Secrets backend (PR 4)
+# =============================================================================
+secrets:
+  # kubernetes | external-secrets
+  backend: kubernetes
+
+  externalSecrets:
+    secretStore:
+      name: ""
+      kind: ClusterSecretStore
+    pathPrefix: ""
+
+# =============================================================================
+# Backup (PR 5)
+# =============================================================================
+backup:
+  enabled: false
+  schedule: "0 22 * * *"
+  # Retention in days (find -mtime +N -delete).
+  retentionDays: 30
+  persistence:
+    enabled: true
+    storageClass: ""
+    size: 20Gi
+  # Optional remote destination.
+  s3:
+    enabled: false
+    bucket: ""
+    endpoint: ""
+    existingSecret: ""
+
+# =============================================================================
+# Monitoring (PR 5)
+# =============================================================================
+monitoring:
+  enabled: false
+  exporter:
+    image:
+      repository: ghcr.io/maximewewer/openldap-prometheus-exporter
+      tag: latest
+      pullPolicy: IfNotPresent
+    port: 9330
+    resources:
+      requests: { cpu: 20m, memory: 32Mi }
+      limits:   { cpu: 200m, memory: 128Mi }
+  serviceMonitor:
+    enabled: false
+    interval: 30s
+    labels: {}
+  prometheusRule:
+    enabled: false
+
+# =============================================================================
+# Ingress (PR 6)
+# =============================================================================
+ingress:
+  enabled: false
+  # ingress-nginx | gateway-api
+  mode: ingress-nginx
+
+  ingressNginx:
+    className: nginx
+    tcpPassthrough: true
+    tcpServicesConfigMap: ingress-nginx/tcp-services
+    annotations: {}
+
+  gatewayAPI:
+    gatewayClassName: cilium
+    listeners:
+      ldaps:
+        port: 636
+        hostname: ""
+
+# =============================================================================
+# Hardening — sensible defaults for MVP, tightened in PR 7
+# =============================================================================
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+  automountServiceAccountToken: false
+
+podSecurityContext:
+  fsGroup: 102
+  runAsNonRoot: true
+  seccompProfile:
+    type: RuntimeDefault
+
+securityContext:
+  runAsUser: 101
+  runAsGroup: 102
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: false      # PR 7: enable + emptyDir writable mounts
+  capabilities:
+    drop: [ALL]
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 256Mi
+  limits:
+    cpu: 1000m
+    memory: 1Gi
+
+podAnnotations: {}
+podLabels: {}
+nodeSelector: {}
+tolerations: []
+affinity: {}
+topologySpreadConstraints: []
+priorityClassName: ""
+
+# PR 7 — PDB shipped alongside NetworkPolicy hardening.
+podDisruptionBudget:
+  enabled: false
+  minAvailable: ""
+  maxUnavailable: ""
+
+# PR 7.
+networkPolicy:
+  enabled: false
+  # Namespaces / pod selectors allowed to reach the LDAP ports.
+  allowedFrom: []
+
+# =============================================================================
+# Probes
+# =============================================================================
+livenessProbe:
+  tcpSocket:
+    port: ldap
+  initialDelaySeconds: 30
+  periodSeconds: 30
+  timeoutSeconds: 5
+  failureThreshold: 6
+
+readinessProbe:
+  tcpSocket:
+    port: ldap
+  initialDelaySeconds: 5
+  periodSeconds: 10
+  timeoutSeconds: 3
+  failureThreshold: 3
+
+startupProbe:
+  tcpSocket:
+    port: ldap
+  initialDelaySeconds: 5
+  periodSeconds: 5
+  timeoutSeconds: 3
+  failureThreshold: 60

@@ -1,0 +1,207 @@
+{{- /*
+StatefulSet — one PVC per replica (data/), three mount points via subPath:
+  slapd.d/         -> /etc/openldap/slapd.d
+  openldap-data/   -> /var/lib/openldap/openldap-data
+  accesslog-data/  -> /var/lib/openldap/accesslog-data
+
+The bootstrap initContainer runs slapadd only when cn=config is absent — safe
+to re-run on pod restart or upgrade. It reads admin/config-admin passwords
+from the mounted Secret (never persisted in cleartext) and hashes them with
+slappasswd before writing them into cn=config.
+*/ -}}
+{{- $fullName := include "openldap.fullname" . -}}
+{{- if not (eq .Values.mode "standalone") -}}
+{{- fail (printf "openldap.mode=%q is not implemented yet — only 'standalone' is available in this chart version (see kubernetes/README.md roadmap PR 3)." .Values.mode) -}}
+{{- end -}}
+{{- if ne (int .Values.replicaCount) 1 -}}
+{{- fail (printf "openldap.replicaCount must be 1 for mode=standalone (got %d)" (int .Values.replicaCount)) -}}
+{{- end -}}
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ $fullName }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "openldap.labels" . | nindent 4 }}
+spec:
+  serviceName: {{ include "openldap.headlessServiceName" . }}
+  replicas: {{ .Values.replicaCount }}
+  podManagementPolicy: OrderedReady
+  updateStrategy:
+    type: RollingUpdate
+  selector:
+    matchLabels:
+      {{- include "openldap.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "openldap.selectorLabels" . | nindent 8 }}
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      annotations:
+        # Force pod rollout when the bootstrap ConfigMap or admin Secret changes.
+        checksum/bootstrap: {{ include (print $.Template.BasePath "/configmap-bootstrap.yaml") . | sha256sum }}
+        {{- if not .Values.admin.existingSecret }}
+        checksum/admin-secret: {{ include (print $.Template.BasePath "/secret-admin.yaml") . | sha256sum }}
+        {{- end }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      serviceAccountName: {{ include "openldap.serviceAccountName" . }}
+      automountServiceAccountToken: {{ .Values.serviceAccount.automountServiceAccountToken }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      {{- with .Values.priorityClassName }}
+      priorityClassName: {{ . }}
+      {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.topologySpreadConstraints }}
+      topologySpreadConstraints:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      initContainers:
+        - name: bootstrap
+          image: "{{ .Values.initImage.repository }}:{{ .Values.initImage.tag }}"
+          imagePullPolicy: {{ .Values.initImage.pullPolicy }}
+          command: ["/bin/sh", "/bootstrap/bootstrap.sh"]
+          env:
+            - name: APK_PACKAGES
+              value: {{ .Values.initImage.packages | quote }}
+            - name: OWNER_UID
+              value: {{ .Values.securityContext.runAsUser | quote }}
+            - name: OWNER_GID
+              value: {{ .Values.securityContext.runAsGroup | quote }}
+          # Runs as root: apk needs privileges + files are chowned to
+          # <OWNER_UID>:<OWNER_GID> at the end so the main container reads them.
+          securityContext:
+            runAsUser: 0
+            runAsGroup: 0
+            runAsNonRoot: false
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+              add: [CHOWN, FOWNER, DAC_OVERRIDE]
+          volumeMounts:
+            - name: bootstrap
+              mountPath: /bootstrap
+              readOnly: true
+            - name: admin-secret
+              mountPath: /secrets
+              readOnly: true
+            - name: data
+              mountPath: /etc/openldap/slapd.d
+              subPath: slapd.d
+            - name: data
+              mountPath: /var/lib/openldap/openldap-data
+              subPath: openldap-data
+            - name: data
+              mountPath: /var/lib/openldap/accesslog-data
+              subPath: accesslog-data
+            - name: run
+              mountPath: /run/openldap
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+      containers:
+        - name: openldap
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["slapd"]
+          args:
+            - "-d"
+            - "0"
+            - "-h"
+            - "ldap:///{{ if .Values.tls.enabled }} ldaps:///{{ end }}"
+            - "-F"
+            - "/etc/openldap/slapd.d"
+          ports:
+            - name: ldap
+              containerPort: {{ .Values.service.ldapPort }}
+              protocol: TCP
+            {{- if .Values.tls.enabled }}
+            - name: ldaps
+              containerPort: {{ .Values.service.ldapsPort }}
+              protocol: TCP
+            {{- end }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+            capabilities:
+              drop: [ALL]
+              # slapd binds privileged port 389 (and 636 when TLS is on).
+              add: [NET_BIND_SERVICE]
+          livenessProbe:
+            {{- toYaml .Values.livenessProbe | nindent 12 }}
+          readinessProbe:
+            {{- toYaml .Values.readinessProbe | nindent 12 }}
+          startupProbe:
+            {{- toYaml .Values.startupProbe | nindent 12 }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - name: data
+              mountPath: /etc/openldap/slapd.d
+              subPath: slapd.d
+            - name: data
+              mountPath: /var/lib/openldap/openldap-data
+              subPath: openldap-data
+            - name: data
+              mountPath: /var/lib/openldap/accesslog-data
+              subPath: accesslog-data
+            - name: run
+              mountPath: /run/openldap
+            {{- if and .Values.tls.enabled .Values.tls.provided.secretName }}
+            - name: tls
+              mountPath: /etc/openldap/certs
+              readOnly: true
+            {{- end }}
+      volumes:
+        - name: bootstrap
+          configMap:
+            name: {{ $fullName }}-bootstrap
+            defaultMode: 0555
+        - name: admin-secret
+          secret:
+            secretName: {{ include "openldap.adminSecretName" . }}
+            defaultMode: 0400
+        - name: run
+          emptyDir:
+            medium: Memory
+            sizeLimit: 16Mi
+        {{- if and .Values.tls.enabled .Values.tls.provided.secretName }}
+        - name: tls
+          secret:
+            secretName: {{ .Values.tls.provided.secretName }}
+            defaultMode: 0400
+        {{- end }}
+  {{- if .Values.persistence.enabled }}
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+        labels:
+          {{- include "openldap.labels" . | nindent 10 }}
+        {{- with .Values.persistence.annotations }}
+        annotations:
+          {{- toYaml . | nindent 10 }}
+        {{- end }}
+      spec:
+        accessModes:
+          {{- toYaml .Values.persistence.accessModes | nindent 10 }}
+        {{- if .Values.persistence.storageClass }}
+        storageClassName: {{ .Values.persistence.storageClass | quote }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ .Values.persistence.size }}
+  {{- end }}
