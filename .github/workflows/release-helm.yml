@@ -1,0 +1,58 @@
+name: Release Helm Chart
+
+on:
+  workflow_dispatch:
+  pull_request:
+    types: [closed]
+    branches: [main]
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    if: >
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.pull_request.merged == true &&
+       github.event.pull_request.head.ref == 'chore/update-versions')
+    permissions:
+      contents: read
+      packages: write
+
+    env:
+      CHART_DIR: kubernetes/charts/openldap-stack
+      CHART_NAME: openldap-stack
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Install Helm
+        uses: azure/setup-helm@v5
+
+      - name: Convert repository owner to lowercase
+        id: lowercase
+        run: |
+          OWNER_LOWER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+          echo "owner=${OWNER_LOWER}" >> $GITHUB_OUTPUT
+
+      - name: Get chart version
+        id: chart
+        run: |
+          VERSION=$(grep '^version:' ${CHART_DIR}/Chart.yaml | awk '{print $2}')
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Releasing chart version: $VERSION"
+
+      - name: Login to GitHub Container Registry
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io -u ${{ github.actor }} --password-stdin
+
+      - name: Update chart dependencies
+        run: |
+          helm dependency update ${CHART_DIR}
+
+      - name: Package Helm chart
+        run: |
+          helm package ${CHART_DIR} --version ${{ steps.chart.outputs.version }}
+
+      - name: Push Helm chart to GHCR
+        run: |
+          helm push ${CHART_NAME}-${{ steps.chart.outputs.version }}.tgz oci://ghcr.io/${{ steps.lowercase.outputs.owner }}/charts
