@@ -373,7 +373,7 @@ data:
         done
       fi
 
-      # Description reconcile (CLI ≥ v2026.7.3).
+      # Description reconcile (CLI ≥ v2026.7.4).
       if [ -n "$DESC" ]; then
         CURRENT_DESC=$(openldap-cli group info "$CN" -o json 2>/dev/null \
           | jq -r '.attrs.description[0]? // empty')

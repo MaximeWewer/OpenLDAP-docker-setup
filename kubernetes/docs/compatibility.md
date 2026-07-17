@@ -66,7 +66,7 @@ Both hold across every 2.6 release.
 
 | Binary | Default version | Where |
 |--------|-----------------|-------|
-| `openldap-cli` | v2026.7.3 | `openldap.cli.version` — pinned per release for reproducibility. |
+| `openldap-cli` | v2026.7.4 | `openldap.cli.version` — pinned per release for reproducibility. |
 | `kubectl` | v1.29.4 | `openldap.cli.kubectlVersion` — used by sync/backup/tls Jobs for Secret CRUD + STS rollout. |
 
 ## Prometheus exporter

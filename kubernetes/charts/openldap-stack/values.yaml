@@ -435,7 +435,7 @@ openldap:
       repository: alpine
       tag: "3.22"
       pullPolicy: IfNotPresent
-    version: "v2026.7.3"
+    version: "v2026.7.4"
     downloadUrl: "https://github.com/maximewewer/openldap-cli/releases/download"
     kubectlVersion: "v1.29.4"
 
@@ -524,7 +524,7 @@ openldap:
   onGroupRemove: delete
 
   # =============================================================================
-  # Declarative ACLs — openldap-cli config acl grant/revoke (CLI ≥ v2026.7.3)
+  # Declarative ACLs — openldap-cli config acl grant/revoke (CLI ≥ v2026.7.4)
   # =============================================================================
   # Each entry becomes one olcAccess clause on the target database. The chart
   # owns the grantee (group or DN): on every helm upgrade every clause referencing
@@ -554,7 +554,7 @@ openldap:
   #       terminator: break                        # break | none
 
   # =============================================================================
-  # Tree-scoped grants — openldap-cli svc grant/revoke (CLI ≥ v2026.7.3)
+  # Tree-scoped grants — openldap-cli svc grant/revoke (CLI ≥ v2026.7.4)
   # =============================================================================
   # Higher-level than `acls:` — emits BOTH the container rule (enables tree as
   # search-base) and the entry rule (read/write) for a service account, auto-
@@ -570,7 +570,7 @@ openldap:
   #       membersOf: admins                        # limit entry rule to group members
 
   # =============================================================================
-  # Overlays — openldap-cli config overlay enable/disable (CLI ≥ v2026.7.3)
+  # Overlays — openldap-cli config overlay enable/disable (CLI ≥ v2026.7.4)
   # =============================================================================
   # Toggle overlays on the main data database. `enable: true` loads the module
   # (unless noModule=true) then adds the overlay; `enable: false` sets
@@ -592,7 +592,7 @@ openldap:
   #     #   noModule: false                         # true = fail if module not preloaded
 
   # =============================================================================
-  # ACL lint — periodic `openldap-cli config acl lint` (CLI ≥ v2026.7.3)
+  # ACL lint — periodic `openldap-cli config acl lint` (CLI ≥ v2026.7.4)
   # =============================================================================
   # CronJob that reports unreachable (shadowed) and no-op olcAccess rules.
   # Exits non-zero if any are found so the CronJob shows as Failed and can wire
