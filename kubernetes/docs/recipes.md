@@ -317,3 +317,68 @@ openldap:
 
 The chart's auto-generated Secret is skipped entirely — the ExternalSecret
 owns the material.
+
+## 6. Multi-master + autoscaling (HPA + time-of-day)
+
+Full-auto scale up/down of a multi-master mesh — CPU / memory driven,
+with a business-hour ramp-up that raises the HPA ceiling every weekday.
+See [`scaling.md`](scaling.md) for the mechanism deep dive.
+
+```yaml
+openldap:
+  mode: multi-master
+  replicaCount: 2               # initial + hpa.minReplicas — keep aligned
+  replication:
+    serverIdBase: 1
+
+  # metrics-server MUST be running in the cluster for CPU/memory HPA.
+  # For Prometheus-backed metrics (bind rate, latency), install
+  # prometheus-adapter and extend hpa.metrics[] — see scaling.md.
+  hpa:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 6
+    metrics:
+      - type: Resource
+        resource:
+          name: cpu
+          target: { type: Utilization, averageUtilization: 70 }
+      - type: Resource
+        resource:
+          name: memory
+          target: { type: Utilization, averageUtilization: 80 }
+    behavior:
+      scaleDown:
+        stabilizationWindowSeconds: 600      # 10 min grace
+        policies:
+          - { type: Pods, value: 1, periodSeconds: 300 }
+      scaleUp:
+        stabilizationWindowSeconds: 30
+        policies:
+          - { type: Pods, value: 2, periodSeconds: 60 }
+
+  # Business hours: raise the ceiling. Off-hours: tighten. Weekend: minimum.
+  scaleSchedule:
+    - name: business-hours
+      schedule: "0 8 * * 1-5"
+      minReplicas: 4
+      maxReplicas: 8
+    - name: off-hours
+      schedule: "0 20 * * 1-5"
+      minReplicas: 2
+      maxReplicas: 3
+    - name: weekend
+      schedule: "0 0 * * 6"
+      minReplicas: 2
+      maxReplicas: 2
+```
+
+Emitted alongside the standard resources: 1 `HorizontalPodAutoscaler`,
+3 `CronJob` (one per `scaleSchedule` entry), 1 `Deployment`
+`<release>-openldap-scale-watcher` (bridges HPA scale events to a
+rolling restart so existing pods reconcile their cn=config peer list).
+
+**helm upgrade caveat**: once the HPA has scaled `sts.spec.replicas`,
+subsequent `helm upgrade` runs will conflict on that field
+(kube-controller-manager owns it). Bump `openldap.replicaCount` in
+values to match the live count for each upgrade.

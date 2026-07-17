@@ -51,6 +51,11 @@ Starting overlay if you want to skim before opening the full tables.
 | `openldap.accesslog.ops` | `writes bind` | Drop `bind` for high-traffic setups |
 | `openldap.replication.serverIdBase` | `1` | Distinct per cluster in cross-cluster HA |
 | `openldap.replication.externalPeers` | `[]` | Cross-cluster LDAPS URIs |
+| `openldap.hpa.enabled` | `false` | HorizontalPodAutoscaler v2 — requires `mode: multi-master` |
+| `openldap.hpa.minReplicas` / `maxReplicas` | `2` / `5` | HPA scale window |
+| `openldap.hpa.metrics` | CPU 70% + mem 80% | autoscaling/v2 metrics[] verbatim; supports Prometheus-adapter |
+| `openldap.scaleSchedule` | `[]` | Cron CronJobs that patch HPA min/max at scheduled times |
+| `openldap.scaleWatcher.pollIntervalSeconds` | `10` | Scale-watcher STS poll interval (auto-emitted with hpa / scaleSchedule) |
 | `openldap.replication.startTLS` | `""` | `""` \| `"yes"` \| `"critical"` — quote to avoid YAML bool |
 | `openldap.customSchemas.files` | `{}` | Inline extra schema LDIFs |
 | `openldap.customLdifs.files` | `{}` | Inline extra data LDIFs (rendered via tpl) |

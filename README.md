@@ -9,7 +9,7 @@ runtime that matches your infrastructure.
 | Target | Path | Modes |
 |--------|------|-------|
 | **Docker Compose** | [`docker/`](docker/) | standalone · HA active-passive (MirrorMode) · HA active-active (N-way multi-master) |
-| **Kubernetes (Helm chart)** | [`kubernetes/`](kubernetes/) | standalone · mirror · multi-master · +cross-cluster mesh · +read-only replica pool |
+| **Kubernetes (Helm chart)** | [`kubernetes/`](kubernetes/) | standalone · mirror · multi-master (+ full-auto HPA scaling) · +cross-cluster mesh · +read-only replica pool |
 
 Both layouts share the same LDIF bootstrap, the same overlays (memberof,
 refint, ppolicy, dynlist, accesslog, syncprov) and the same
@@ -23,14 +23,16 @@ Behaviours common to both platforms:
 - Delta-syncrepl HA (accesslog + syncprov)
 - Least-privilege ACLs per OU, SSHA-hashed passwords, TLS/LDAPS
 - Idempotent bootstrap + cert renewal (Docker: cron; Kubernetes: CronJob)
-- Full admin surface via `openldap-cli` (users, groups, ppolicy, ACLs, backup, diagnostics)
+- Full admin surface via `openldap-cli` (users, groups, ppolicy, ACLs, overlays, tree-grants, backup, diagnostics)
 - Prometheus monitoring via [openldap_prometheus_exporter](https://github.com/maximewewer/openldap_prometheus_exporter)
 - POSIX schema toggle for SSH / UNIX login
 - Backup + accesslog purge automation
 
 Kubernetes-only additions:
 
-- Declarative users / groups / policies reconciled on every `helm upgrade`
+- Six declarative blocks reconciled on every `helm upgrade` — users, groups, policies, ACLs, tree-grants, overlays — one post-install/upgrade sync Job each
+- Full-auto horizontal scaling in `multi-master`: HPA v2 (CPU/mem/Prometheus-adapter metrics) + chart-native cron scale windows (`scaleSchedule`), with an in-cluster scale-watcher Deployment that rebuilds `cn=config` peer topology on every scale event — no manual `kubectl rollout restart`
+- Periodic `config acl lint` CronJob to flag shadowed / no-op olcAccess rules
 - Per-user password Secret backend (nothing sensitive in `values.yaml`)
 - Three TLS backends: `cert-manager`, in-cluster `job` (self-signed + auto-renew + rolling restart), or user-`provided`
 - Ingress via `ingress-nginx` SSL passthrough or Gateway API `TLSRoute`
@@ -72,14 +74,14 @@ kubectl -n ldap get secret ldap-openldap-admin \
 
 Full docs: [`kubernetes/README.md`](kubernetes/README.md).
 Operator handbook: [`kubernetes/docs/`](kubernetes/docs/) (recipes,
-troubleshooting, sizing, backup/DR, migrate-from-docker, ...).
+troubleshooting, sizing, backup/DR, migrate-from-docker, scaling, ...).
 GitOps + cross-cluster HA: [`kubernetes/gitops/`](kubernetes/gitops/) and
 [`kubernetes/cross-cluster/`](kubernetes/cross-cluster/).
 
 ## Repository layout
 
 ```
-OpenLDAP-setup/
+openldap-setup/
 ├── docker/                      # Docker Compose recipes (standalone + 2 HA modes)
 │   ├── README.md                # comprehensive per-mode ops handbook
 │   ├── base-ldifs/              # shared bootstrap LDIFs (OUs, admin, policies)

@@ -1,16 +1,17 @@
 # Scaling the OpenLDAP writable pool
 
 The chart supports **fully automatic** horizontal scaling of the
-writable StatefulSet in `mode: multi-master`. Three orthogonal knobs:
+writable StatefulSet in `mode: multi-master` — including HPA-driven
+scaling that never touches Helm values. Three orthogonal knobs:
 
 1. **Manual** — set `openldap.replicaCount` and `helm upgrade`.
 2. **HPA** — resource + custom-metric-driven autoscaling.
-3. **`scaleSchedule`** — cron-driven adjustment of the HPA min/max window
-   (business-hour ramp-up, off-hour cooldown).
+3. **`scaleSchedule`** — cron-driven adjustment of the HPA min/max
+   window (business-hour ramp-up, off-hour cooldown).
 
-All three trigger the **bootstrap reconcile branch** on existing pods so
-`cn=config` peer list is rebuilt without any manual `kubectl` step. The
-data database (`mdb`) is preserved.
+All three end up on the same reconcile path: every pod's initContainer
+rebuilds `cn=config`'s peer list against the LIVE `spec.replicas` and
+the data database (`mdb`) is preserved.
 
 ## Constraints
 
@@ -21,35 +22,78 @@ data database (`mdb`) is preserved.
   the HPA is enabled it owns the count afterwards. Keep
   `replicaCount == hpa.minReplicas` so `helm upgrade` doesn't briefly
   scale down before the HPA rescales.
+- `helm upgrade` after HPA has scaled the STS will **conflict** on
+  `spec.replicas` (kube-controller-manager owns that field via HPA's
+  `scale` subresource). Bump `openldap.replicaCount` to match the live
+  count for that upgrade, or use `helm upgrade --force`. Not a
+  chart bug — standard HPA/helm interop.
 
-## How full-auto reconcile works
+## How full-auto reconcile works (two-part mechanism)
 
-Each writable / RO StatefulSet pod carries a `checksum/topology`
-annotation on its PodTemplateSpec, hashed from every input that shapes
-`cn=config`'s peer topology:
+**Part A — bootstrap fetches live `spec.replicas` at boot**
+
+In multi-master mode, every pod carries the SA token
+(`automountServiceAccountToken: true`) and its bootstrap initContainer
+queries the K8s API for the live `StatefulSet.spec.replicas` before
+building the syncrepl peer list. The env `REPLICA_COUNT` (baked from
+`.Values.replicaCount` at helm render) is used only as a fallback if
+the API call fails.
+
+Bootstrap trace on a scale event:
 
 ```
-mode | NODE_ROLE | REPLICA_COUNT | serverIdBase | readOnlyServerIdBase
-     | externalPeers | suffix
+[bootstrap] REPLICA_COUNT env=2 — using live STS spec.replicas=3
+[bootstrap] built 3 syncrepl providers, serverID=1
+[bootstrap] Reconcile done — cn=config rebuilt for the new topology.
 ```
 
-Any change to those inputs (bumping `replicaCount`, HPA scaling event,
-external peer added) changes the checksum → StatefulSet controller
-performs a rolling restart.
+The RBAC scope for this is minimal — a Role `<release>-openldap-server`
+with `statefulsets/get` bound to the exact STS name only, granted to
+the openldap SA. Only rendered when `mode: multi-master`.
 
-On each pod boot:
+**Part B — scale-watcher Deployment triggers a rollout on scale events**
 
-- `initContainer:bootstrap` computes the desired hash from env vars.
-- If the local `${SLAPD_D}/.topology-hash` matches → skip (fast path).
-- If not → wipe `${SLAPD_D}` only (data at `${MDB_DIR}` untouched),
-  regenerate `cn=config` LDIF with the new peer list, `slapadd -n 0`.
-- Success marker + new hash written LAST so a mid-write crash forces
-  another reconcile on next boot.
+A 1-replica Deployment `<release>-openldap-scale-watcher` polls
+`STS.spec.replicas` every 10 s (configurable via
+`scaleWatcher.pollIntervalSeconds`). When it detects a change, it runs
+`kubectl rollout restart sts <name>` — K8s then rolls existing pods so
+they re-run bootstrap and, via Part A, discover the new count and
+reconcile cn=config.
 
-The declarative `overlays` / `acls` / `treeGrants` / `ppolicy` / `users`
-/ `groups` sync Jobs run as post-install/upgrade hooks and re-apply
-everything they own on every upgrade, so any live cn=config edits they
-manage are restored automatically after the reconcile wipe.
+Watcher trace during a scale-down:
+
+```
+[scale-watcher] watching sts/ldap-openldap in ns/ldap (poll=10s)
+[scale-watcher] spec.replicas changed 4 -> 2 — rolling restart
+statefulset.apps/ldap-openldap restarted
+```
+
+Emitted only when `mode: multi-master` AND (`hpa.enabled` OR
+`scaleSchedule`). Manual `helm upgrade --set replicaCount=N` doesn't
+need it (the checksum on the PodTemplate flips → K8s rolls
+automatically) but the watcher is harmless if left on.
+
+**Bootstrap reconcile branch (rebuilds cn=config in-place)**
+
+On each pod boot the initContainer:
+
+1. Computes `DESIRED_TOPO_HASH` from `MODE | NODE_ROLE | REPLICA_COUNT
+   | serverIdBase | READONLY_SERVER_ID_BASE | EXTERNAL_PEERS | SUFFIX`
+   — where `REPLICA_COUNT` is the live value from Part A.
+2. Compares to `${SLAPD_D}/.topology-hash`. If matches → fast path
+   skip. If differs → wipes `${SLAPD_D}` only (data DB in `${MDB_DIR}`
+   untouched), re-runs full bootstrap with the new inputs, writes the
+   new hash + marker.
+3. Mid-write crash safe (hash + marker written LAST → partial run
+   forces another reconcile on next boot).
+
+Declarative sync-Jobs (`overlays` / `acls` / `treeGrants` / `ppolicy`
+/ `users` / `groups`) run as post-install/upgrade hooks and re-apply
+everything they own on every helm upgrade, so any live cn=config
+additions they manage are automatically restored after the reconcile
+wipe. Manual `openldap-cli` edits made outside those blocks WILL be
+lost on reconcile — put them under a declarative block if you want
+them to survive scale events.
 
 ## Manual scaling
 
@@ -59,11 +103,13 @@ helm upgrade ldap kubernetes/charts/openldap-stack \
   --set openldap.replicaCount=5
 ```
 
-StatefulSet spins up pods 3 and 4, rolls pods 0-2. Every pod ends the
-upgrade knowing about all 5 peers. No `kubectl rollout restart` needed.
+Path: helm changes `.Values.replicaCount` → the `checksum/topology`
+annotation on the PodTemplate flips → StatefulSet controller does a
+rolling restart AND scales to N → every pod's bootstrap sees a
+mismatched topology hash → reconcile branch fires.
 
-Scale down works the same way — bump `replicaCount` down, extra pods
-are terminated by K8s (PVCs retained by default so scale-back is fast).
+Works even without the scale-watcher Deployment (the PodTemplate
+checksum is enough). Data preserved.
 
 ## HPA — resource + custom metrics
 
@@ -103,6 +149,23 @@ openldap:
             value: 2
             periodSeconds: 60
 ```
+
+HPA-driven scale timeline:
+
+1. HPA patches `sts/<name> subresource=scale spec.replicas` from N to M
+   (M > N for scale-up, M < N for scale-down)
+2. Within ≤ `scaleWatcher.pollIntervalSeconds` (default 10 s), the
+   scale-watcher notices the change and runs `kubectl rollout restart`
+3. StatefulSet controller rolls existing pods AND creates/terminates
+   pods to match M
+4. On each pod boot, bootstrap fetches live `spec.replicas=M` (Part A),
+   sees hash mismatch, reconciles cn=config with M syncrepl providers
+5. syncrepl catches up — new pods pull from the mesh, terminating pods
+   finish their in-flight replication
+
+End-to-end latency for scale-up: HPA control loop (~15 s) + watcher
+poll (≤ 10 s) + rolling restart (~pod boot × N pods staggered) —
+typically 90-180 s for a small mesh.
 
 ### Prometheus-backed custom metrics
 
@@ -169,7 +232,9 @@ rules:
 **KEDA alternative** — install the KEDA operator, then use its
 `ScaledObject` CRD instead of the native HPA (heavier dep, but supports
 event-driven triggers Prometheus HPA can't do: pub/sub queue depth,
-webhook, scheduled scaling with built-in cron trigger).
+webhook, scheduled scaling with built-in cron trigger). The
+scale-watcher still works — it observes `STS.spec.replicas` regardless
+of who patches it.
 
 ## Time-of-day scaling — `scaleSchedule`
 
@@ -203,17 +268,31 @@ openldap:
     #   timeZone: "Europe/Paris"
 ```
 
-Each CronJob runs one `bitnami/kubectl` container (pinned to the same
-version as `openldap.cli.kubectlVersion` for consistency), patches
-the HPA object, and exits. The sync ServiceAccount is granted the
+Each CronJob runs one `rancher/kubectl` container (distroless — invokes
+`kubectl` directly with no shell), patches the HPA object, and exits.
+The sync ServiceAccount is granted the
 `autoscaling/horizontalpodautoscalers` verbs `get, patch` when
 `scaleSchedule` is set.
 
 **No conflict with the HPA itself** — the CronJob only sets the
 min/max window; the HPA still owns the current replica count via its
 metrics loop. When `minReplicas` bumps up, the HPA scales up on its
-next control loop (~15 s); when it drops down, the `behavior.scaleDown`
-stabilization window applies.
+next control loop (~15 s), the scale-watcher notices, rolls pods; when
+it drops down, the `behavior.scaleDown` stabilization window applies.
+
+## Component summary
+
+| Piece | Emit condition | Purpose |
+|-------|----------------|---------|
+| `checksum/topology` annotation on STS PodTemplate | `mode: multi-master` | Rolling restart on helm-value change |
+| `automountServiceAccountToken: true` on STS pods | `mode: multi-master` | Bootstrap has SA token for API call |
+| Role `<release>-openldap-server` (`statefulsets/get`) | `mode: multi-master` | RBAC for bootstrap's API query |
+| `STS_NAME` env in bootstrap init | `mode: multi-master` | Target name for the API call |
+| `HorizontalPodAutoscaler` | `hpa.enabled: true` | Metric-driven scale |
+| `CronJob` × N (scaleSchedule) | `scaleSchedule[]` non-empty | Time-of-day min/max patch |
+| `Deployment` scale-watcher | `mode: multi-master` AND (`hpa.enabled` OR `scaleSchedule`) | Bridges scale events (non-helm) to rolling restart |
+| `statefulsets get,list,watch,patch` on sync SA | Watcher OR tls-renew rollingRestart | Watcher + TLS renew |
+| `horizontalpodautoscalers get,patch` on sync SA | `scaleSchedule[]` non-empty AND `hpa.enabled` | Cron scaler patches HPA |
 
 ## Interaction with PodDisruptionBudget
 
@@ -221,8 +300,11 @@ The chart emits a PDB when `replicaCount > 1` with
 `minAvailable = replicaCount - 1`. When the HPA drives the count up,
 `minAvailable` stays computed against `replicaCount` — that's the value
 at helm render time, NOT the live scale. If you want the PDB to track
-the HPA range, override `podDisruptionBudget.minAvailable` with a fixed
-value (e.g. `minAvailable: "50%"`).
+the HPA range, override `podDisruptionBudget.minAvailable` with a
+percentage form (e.g. `"50%"`) which auto-tracks live pod count.
+
+Not the chart default because a fixed value is more predictable for
+the standalone/mirror cases where scale doesn't move.
 
 ## PVC lifecycle on scale-down
 
@@ -244,8 +326,12 @@ first-class chart knob).
 
 | Symptom | Check |
 |---------|-------|
-| Pods rebooted but `olcSyncRepl` still points at old peers | Look at initContainer logs — should show `Topology changed` line. If not, `checksum/topology` didn't flip; check `helm get manifest` diff. |
+| HPA scales STS but existing pods still show old syncrepl count | scale-watcher pod status: `kubectl -n <ns> logs deploy/<release>-openldap-scale-watcher`. Should log the `spec.replicas changed X -> Y — rolling restart` line. If not, either the deployment isn't emitted (`hpa.enabled` + `scaleSchedule` both false in multi-master) or its poll hasn't fired yet (default 10 s). |
+| New pods after HPA scale-up have wrong `REPLICA_COUNT` | Look for `[bootstrap] REPLICA_COUNT env=... — using live STS spec.replicas=...` in the pod's init log. If missing, the API call failed — check RBAC (`kubectl auth can-i get sts --as=system:serviceaccount:<ns>:<release>-openldap`) and that `automountServiceAccountToken: true` on the pod spec. |
+| `helm upgrade` fails with `conflict with "kube-controller-manager"` on `spec.replicas` | Standard HPA+helm interop. Bump `openldap.replicaCount` in values to match the live STS count for this upgrade. |
+| Pods rebooted but `olcSyncRepl` still points at old peers | initContainer log — should show `Topology changed` line. If it says `topology unchanged`, the Fix A API query returned the same value as before. Check `kubectl -n <ns> get sts <name> -o jsonpath='{.spec.replicas}'`. |
 | New pod stuck in Init | initContainer log — likely LDIF template error (e.g. schema mismatch). Fall back: delete PVC on the stuck pod, let it seed fresh from ordinal-0. |
 | HPA shows `<unknown>` for a Prometheus metric | prometheus-adapter not scraping / metric name mismatch. `kubectl get --raw /apis/custom.metrics.k8s.io/v1beta1` should list your metric. |
 | CronJob scaler patched HPA but replicas didn't change | HPA needs a metrics-server reading to react. Wait one control loop (~15 s) or check HPA events for `FailedGetResourceMetric`. |
 | Scale-down leaves noisy syncrepl retries in slapd logs | Expected briefly (~1-2 s) while the terminating pod finishes shutdown. Persistent errors after 1 min mean the reconcile didn't run — check initContainer logs on the surviving pods. |
+| Scale-watcher pod OOMKilled after long uptime | Bump `scaleWatcher.resources.limits.memory` (default 128Mi). Alpine + kubectl usually stays under 50Mi, but transient K8s API paging can spike. |

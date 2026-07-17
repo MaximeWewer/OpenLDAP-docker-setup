@@ -124,14 +124,21 @@ Cross-cluster HA (any of the modes above, multi-cluster mesh): set
 
 ### Horizontal scaling (multi-master only)
 
-Full-auto: bumping `openldap.replicaCount` or letting the HPA scale flips the `checksum/topology` annotation on the StatefulSet PodTemplate → rolling restart → each pod's initContainer detects a topology-hash mismatch on its PVC and rebuilds `cn=config` peer list from the new `REPLICA_COUNT` (data DB in `mdb` preserved). **No manual `kubectl rollout restart` step.**
+Full-auto: bumping `openldap.replicaCount` (`helm upgrade`) OR letting the HPA scale STS.spec.replicas directly (bypassing helm) both end up rebuilding `cn=config`'s peer list on every pod without any manual `kubectl` step. Data DB (`mdb`) is preserved.
+
+Two-part mechanism:
+
+- **Part A** — in multi-master, every pod's bootstrap initContainer fetches the LIVE `StatefulSet.spec.replicas` via the K8s API at boot (env `REPLICA_COUNT` = fallback). Pods created by HPA scale-up therefore configure syncrepl against the current mesh size, not the stale render-time value.
+- **Part B** — a 1-replica `Deployment` `<release>-openldap-scale-watcher` polls `spec.replicas` every 10 s and issues `kubectl rollout restart` on change. This closes the gap for HPA-driven scaling (HPA doesn't touch the PodTemplate hash, so existing pods wouldn't otherwise restart). Auto-emitted with `hpa.enabled` or `scaleSchedule`.
 
 Optional autoscaling knobs:
 
-- `openldap.hpa.enabled: true` — emits a `HorizontalPodAutoscaler` v2 targeting the writable STS. Default = CPU 70% + memory 80%; extend `metrics[]` with Prometheus-adapter-fed custom metrics for LDAP-specific triggers (bind rate, search p99). Chart validates `mode == multi-master`; fails render otherwise.
+- `openldap.hpa.enabled: true` — emits `HorizontalPodAutoscaler` v2 targeting the writable STS. Default = CPU 70% + memory 80%; extend `metrics[]` with Prometheus-adapter-fed custom metrics for LDAP-specific triggers (bind rate, search p99). Chart validates `mode == multi-master`; fails render otherwise.
 - `openldap.scaleSchedule[]` — chart-native cron scaler (no KEDA dep): each entry emits a `CronJob` that runs `kubectl patch hpa` at its schedule to adjust the HPA min/max window. Business-hour ramp-up + off-hour cooldown in ~10 lines of values.
 
-Full playbook (HPA metric shapes, prometheus-adapter rules, PDB interaction, PVC retention on scale-down, troubleshooting): [`docs/scaling.md`](docs/scaling.md).
+Caveat: `helm upgrade` after HPA has scaled will conflict on `spec.replicas` (kube-controller-manager owns that field). Bump `openldap.replicaCount` in values to match the live count for that upgrade.
+
+Full playbook (HPA metric shapes, prometheus-adapter rules, KEDA alternative, component-emit matrix, PDB interaction, PVC retention on scale-down, troubleshooting): [`docs/scaling.md`](docs/scaling.md).
 
 ---
 
