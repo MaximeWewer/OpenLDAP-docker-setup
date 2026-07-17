@@ -1,0 +1,59 @@
+{{- if and .Values.scaleSchedule .Values.hpa.enabled -}}
+{{- $fullName := include "openldap.fullname" . -}}
+{{- $hpaName := $fullName -}}
+{{- range .Values.scaleSchedule }}
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ $fullName }}-scaler-{{ .name }}
+  namespace: {{ $.Release.Namespace }}
+  labels:
+    {{- include "openldap.labels" $ | nindent 4 }}
+    app.kubernetes.io/component: scaler
+    openldap.stack/scaler-window: {{ .name }}
+spec:
+  schedule: {{ .schedule | quote }}
+  {{- with .timeZone }}
+  timeZone: {{ . | quote }}
+  {{- end }}
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      ttlSecondsAfterFinished: 3600
+      template:
+        metadata:
+          labels:
+            {{- include "openldap.selectorLabels" $ | nindent 12 }}
+            app.kubernetes.io/component: scaler
+        spec:
+          restartPolicy: OnFailure
+          serviceAccountName: {{ $fullName }}-sync
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65532
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: patch
+              image: "rancher/kubectl:{{ $.Values.cli.kubectlVersion }}"
+              imagePullPolicy: IfNotPresent
+              # rancher/kubectl is distroless — no shell, invoke kubectl directly.
+              command: [kubectl]
+              args:
+                - -n
+                - {{ $.Release.Namespace }}
+                - patch
+                - hpa
+                - {{ $hpaName }}
+                - --type=merge
+                - -p
+                - '{"spec":{"minReplicas":{{ .minReplicas }},"maxReplicas":{{ .maxReplicas }}}}'
+              resources:
+                requests: { cpu: 10m, memory: 32Mi }
+                limits:   { cpu: 100m, memory: 128Mi }
+{{- end }}
+{{- end }}

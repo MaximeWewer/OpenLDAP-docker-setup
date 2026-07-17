@@ -1,0 +1,27 @@
+{{- if .Values.hpa.enabled -}}
+{{- if ne .Values.mode "multi-master" -}}
+{{- fail (printf "openldap.hpa.enabled=true requires mode=multi-master (got %q). Autoscaling on standalone/mirror is meaningless — their replicaCount is fixed by design." .Values.mode) -}}
+{{- end -}}
+{{- $fullName := include "openldap.fullname" . -}}
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: {{ $fullName }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "openldap.labels" . | nindent 4 }}
+    app.kubernetes.io/component: server
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: StatefulSet
+    name: {{ $fullName }}
+  minReplicas: {{ .Values.hpa.minReplicas }}
+  maxReplicas: {{ .Values.hpa.maxReplicas }}
+  metrics:
+    {{- toYaml .Values.hpa.metrics | nindent 4 }}
+  {{- with .Values.hpa.behavior }}
+  behavior:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+{{- end }}

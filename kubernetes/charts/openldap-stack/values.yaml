@@ -426,6 +426,91 @@ openldap:
       annotations: {}
 
   # =============================================================================
+  # Autoscaling — HorizontalPodAutoscaler v2 targeting the writable STS
+  # =============================================================================
+  # ONLY valid for mode=multi-master. The chart fails render if
+  # hpa.enabled=true and mode != multi-master.
+  #
+  # Any HPA-driven scale event triggers the bootstrap reconcile branch on
+  # every existing pod (checksum/topology → rolling restart → cn=config peer
+  # list rebuilt from the new REPLICA_COUNT). Data DB is preserved.
+  hpa:
+    enabled: false
+    minReplicas: 2
+    maxReplicas: 5
+
+    # metrics[] follows the autoscaling/v2 HPA spec verbatim — Resource,
+    # ContainerResource, Pods, Object, External. Default = 70% CPU + 80% memory.
+    metrics:
+      - type: Resource
+        resource:
+          name: cpu
+          target:
+            type: Utilization
+            averageUtilization: 70
+      - type: Resource
+        resource:
+          name: memory
+          target:
+            type: Utilization
+            averageUtilization: 80
+    # Example — Prometheus-backed LDAP metric via prometheus-adapter
+    # (metric name after adapter transformation), when
+    # openldap.monitoring.enabled=true feeds the exporter to Prometheus.
+    # Also works with KEDA's `type: External` shape.
+    #   metrics:
+    #     - type: Pods
+    #       pods:
+    #         metric:
+    #           name: openldap_bind_rate_per_second
+    #         target:
+    #           type: AverageValue
+    #           averageValue: "200"           # scale up when > 200 binds/s/pod
+    #     - type: Object
+    #       object:
+    #         describedObject:
+    #           apiVersion: v1
+    #           kind: Service
+    #           name: <release>-openldap
+    #         metric:
+    #           name: openldap_search_p99_ms
+    #         target:
+    #           type: Value
+    #           value: "50"                    # scale up when p99 latency > 50ms
+
+    # behavior{} follows the autoscaling/v2 HPA behavior spec verbatim.
+    behavior: {}
+
+  # =============================================================================
+  # Scale watcher — Deployment that bridges HPA scale events to a rolling
+  # restart so every existing pod reconciles cn=config against the new
+  # REPLICA_COUNT. Auto-emitted with hpa.enabled OR scaleSchedule.
+  # =============================================================================
+  scaleWatcher:
+    pollIntervalSeconds: 10
+    resources:
+      requests: { cpu: 10m, memory: 32Mi }
+      limits:   { cpu: 100m, memory: 128Mi }
+
+  # =============================================================================
+  # Time-of-day scaling — CronJobs that patch HPA min/max at scheduled times
+  # =============================================================================
+  # Chart-native (no KEDA dep): each entry emits one CronJob that runs
+  # `kubectl patch hpa` at its schedule to adjust the HPA's min/max window.
+  # Requires hpa.enabled=true.
+  scaleSchedule: []
+  # Example:
+  #   scaleSchedule:
+  #     - name: business-hours
+  #       schedule: "0 8 * * 1-5"
+  #       minReplicas: 4
+  #       maxReplicas: 8
+  #     - name: off-hours
+  #       schedule: "0 20 * * 1-5"
+  #       minReplicas: 2
+  #       maxReplicas: 3
+
+  # =============================================================================
   # openldap-cli — used by all sync Jobs (ppolicy, users, groups) as Helm
   # post-install / post-upgrade hooks. CLI + kubectl are downloaded on the fly
   # from GitHub / dl.k8s.io so no custom image build is required.

@@ -12,7 +12,8 @@ Nothing outside the release namespace is granted; cluster-scoped access
 is never needed (external-secrets integration delegates to ESO's own
 controller SA rather than expanding this Role).
 */ -}}
-{{- if or .Values.users .Values.groups .Values.policies .Values.acls .Values.treeGrants .Values.overlays .Values.backup.enabled .Values.accesslogPurgeJob.enabled .Values.aclLintCronJob.enabled (and .Values.tls.enabled (eq .Values.tls.backend "job")) -}}
+{{- $needScaleWatcher := and (eq .Values.mode "multi-master") (or .Values.hpa.enabled .Values.scaleSchedule) -}}
+{{- if or .Values.users .Values.groups .Values.policies .Values.acls .Values.treeGrants .Values.overlays .Values.backup.enabled .Values.accesslogPurgeJob.enabled .Values.aclLintCronJob.enabled .Values.scaleSchedule $needScaleWatcher (and .Values.tls.enabled (eq .Values.tls.backend "job")) -}}
 apiVersion: v1
 kind: ServiceAccount
 metadata:
@@ -45,11 +46,17 @@ rules:
     resources: [configmaps]
     verbs: [get, list, create, update, patch]
   {{- end }}
-  {{- if and .Values.tls.enabled (eq .Values.tls.backend "job") .Values.tls.job.rollingRestartOnRenew }}
-  # TLS renew CronJob (tls.backend=job) triggers `kubectl rollout restart`
-  # on the StatefulSet to roll pods onto the new server cert.
+  {{- if or (and .Values.tls.enabled (eq .Values.tls.backend "job") .Values.tls.job.rollingRestartOnRenew) $needScaleWatcher }}
+  # TLS renew CronJob triggers `kubectl rollout restart` on the STS.
+  # Scale-watcher Deployment watches spec.replicas + patches on change.
   - apiGroups: [apps]
     resources: [statefulsets]
+    verbs: [get, list, watch, patch]
+  {{- end }}
+  {{- if and .Values.scaleSchedule .Values.hpa.enabled }}
+  # scaleSchedule CronJobs adjust HPA min/max at scheduled times.
+  - apiGroups: [autoscaling]
+    resources: [horizontalpodautoscalers]
     verbs: [get, patch]
   {{- end }}
 ---

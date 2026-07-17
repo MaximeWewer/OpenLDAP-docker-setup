@@ -55,12 +55,22 @@ spec:
         {{- if not .Values.admin.existingSecret }}
         checksum/admin-secret: {{ include (print $.Template.BasePath "/secret-admin.yaml") . | sha256sum }}
         {{- end }}
+        {{- if $ha }}
+        # Force pod rollout when peer topology changes — replicaCount,
+        # serverIdBase, externalPeers. Each pod's initContainer detects the
+        # mismatched .topology-hash on the PVC and rebuilds cn=config with
+        # the new peer list (data DB preserved). Enables full-auto scale
+        # up/down of the writable pool.
+        checksum/topology: {{ printf "%s|%d|%d|%s|%s" $mode (int .Values.replicaCount) (int .Values.replication.serverIdBase) (join "," .Values.replication.externalPeers) .Values.directory.suffix | sha256sum }}
+        {{- end }}
         {{- with .Values.podAnnotations }}
         {{- toYaml . | nindent 8 }}
         {{- end }}
     spec:
       serviceAccountName: {{ include "openldap.serviceAccountName" . }}
-      automountServiceAccountToken: {{ .Values.serviceAccount.automountServiceAccountToken }}
+      # multi-master needs the SA token mounted so the bootstrap initContainer
+      # can query STS.spec.replicas at boot (full-auto HPA-driven scaling).
+      automountServiceAccountToken: {{ if eq $mode "multi-master" }}true{{ else }}{{ .Values.serviceAccount.automountServiceAccountToken }}{{ end }}
       securityContext:
         {{- toYaml .Values.podSecurityContext | nindent 8 }}
       {{- with .Values.priorityClassName }}
@@ -127,6 +137,13 @@ spec:
               value: {{ join "," .Values.replication.externalPeers | quote }}
             - name: SUFFIX
               value: {{ .Values.directory.suffix | quote }}
+            {{- if eq $mode "multi-master" }}
+            # Bootstrap resolves REPLICA_COUNT from the live STS at boot in
+            # multi-master (fallback: env value above). Requires the SA token
+            # projected into the pod (automountServiceAccountToken: true).
+            - name: STS_NAME
+              value: {{ $fullName | quote }}
+            {{- end }}
             - name: ADMIN_DN
               value: {{ .Values.admin.bindDN | quote }}
             - name: SVC_NAME

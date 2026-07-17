@@ -53,6 +53,9 @@ spec:
         {{- if not .Values.admin.existingSecret }}
         checksum/admin-secret: {{ include (print $.Template.BasePath "/secret-admin.yaml") . | sha256sum }}
         {{- end }}
+        # Force RO pod rollout when the writable-pool topology changes (RO
+        # pods consume from writable peers, so any peer-list change matters).
+        checksum/topology: {{ printf "%s|%d|%d|%d|%d|%s|%s" .Values.mode (int .Values.replicaCount) (int .Values.readOnlyReplicas.count) (int .Values.replication.serverIdBase) (int .Values.readOnlyReplicas.serverIdBase) (join "," .Values.replication.externalPeers) .Values.directory.suffix | sha256sum }}
         {{- with .Values.readOnlyReplicas.podAnnotations }}
         {{- toYaml . | nindent 8 }}
         {{- end }}

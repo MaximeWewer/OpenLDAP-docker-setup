@@ -122,6 +122,17 @@ Cross-cluster HA (any of the modes above, multi-cluster mesh): set
 `replication.externalPeers` + distinct `serverIdBase` per cluster. See
 [Integration examples → Cross-cluster HA](#cross-cluster-ha).
 
+### Horizontal scaling (multi-master only)
+
+Full-auto: bumping `openldap.replicaCount` or letting the HPA scale flips the `checksum/topology` annotation on the StatefulSet PodTemplate → rolling restart → each pod's initContainer detects a topology-hash mismatch on its PVC and rebuilds `cn=config` peer list from the new `REPLICA_COUNT` (data DB in `mdb` preserved). **No manual `kubectl rollout restart` step.**
+
+Optional autoscaling knobs:
+
+- `openldap.hpa.enabled: true` — emits a `HorizontalPodAutoscaler` v2 targeting the writable STS. Default = CPU 70% + memory 80%; extend `metrics[]` with Prometheus-adapter-fed custom metrics for LDAP-specific triggers (bind rate, search p99). Chart validates `mode == multi-master`; fails render otherwise.
+- `openldap.scaleSchedule[]` — chart-native cron scaler (no KEDA dep): each entry emits a `CronJob` that runs `kubectl patch hpa` at its schedule to adjust the HPA min/max window. Business-hour ramp-up + off-hour cooldown in ~10 lines of values.
+
+Full playbook (HPA metric shapes, prometheus-adapter rules, PDB interaction, PVC retention on scale-down, troubleshooting): [`docs/scaling.md`](docs/scaling.md).
+
 ---
 
 ## Getting started
@@ -605,6 +616,7 @@ Operator handbook — task-oriented, deep-dive:
 | [`docs/backup-restore.md`](docs/backup-restore.md)         | DR playbook, full-restore recipe, HA-aware restore                  |
 | [`docs/sizing.md`](docs/sizing.md)                         | CPU/mem/storage/mapsize formulas + MAP_FULL live-fix recipe         |
 | [`docs/migrate-from-docker.md`](docs/migrate-from-docker.md) | Move an existing `../docker/` deployment to the chart                |
+| [`docs/scaling.md`](docs/scaling.md)                       | Full-auto scale up/down: HPA, cron scaler, Prometheus-metrics-driven, PVC lifecycle |
 | [`docs/values-reference.md`](docs/values-reference.md)     | Curated top-30 values + pointer to auto-generated per-chart READMEs |
 | [`docs/compatibility.md`](docs/compatibility.md)           | K8s / Helm / CNI / optional-dep version matrix                      |
 | [`gitops/README.md`](gitops/README.md)                     | Argo CD + Flux integration (Helm hooks, Secret preservation, SSA)   |

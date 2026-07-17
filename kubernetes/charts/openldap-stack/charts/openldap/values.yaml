@@ -410,6 +410,105 @@ readOnlyReplicas:
     annotations: {}
 
 # =============================================================================
+# Autoscaling — HorizontalPodAutoscaler v2 targeting the writable STS
+# =============================================================================
+# ONLY valid for mode=multi-master. Standalone (=1) and mirror (=2) enforce
+# a fixed replicaCount at helm render time so HPA on them is nonsense; the
+# chart fails the render if hpa.enabled=true and mode != multi-master.
+#
+# When enabled, `replicaCount` becomes the INITIAL replica count on first
+# install; the HPA then owns the count from that point on. Keep replicaCount
+# = hpa.minReplicas to avoid the momentary scale-down on every helm upgrade
+# (helm resets STS.spec.replicas to the values file, HPA rescales on next
+# control loop).
+#
+# Full auto: any topology change triggered by an HPA scale (new pod ordinal
+# appears / disappears) rolls every existing pod through the bootstrap
+# reconcile branch — cn=config peer list rebuilt from the new REPLICA_COUNT
+# without operator intervention.
+hpa:
+  enabled: false
+  minReplicas: 2
+  maxReplicas: 5
+
+  # metrics[] follows the autoscaling/v2 HPA spec verbatim — Resource,
+  # ContainerResource, Pods, Object, External. Default = 70% CPU + 80% memory.
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 80
+
+  # behavior{} follows the autoscaling/v2 HPA behavior spec verbatim.
+  # Empty = kubernetes defaults (fast up, slow down).
+  behavior: {}
+
+# =============================================================================
+# Scale watcher — Deployment that bridges HPA scale events to a rolling
+# restart, so every existing pod's initContainer reconciles cn=config
+# against the new REPLICA_COUNT. Emitted only when mode=multi-master AND
+# (hpa.enabled OR scaleSchedule). Without this, HPA-created pods misconfigure
+# their syncrepl mesh (env REPLICA_COUNT is baked from render-time values).
+# =============================================================================
+scaleWatcher:
+  # Polling interval on the STS. 10s is a good tradeoff between reactivity
+  # (worst-case delay to detect a scale event) and API server load.
+  pollIntervalSeconds: 10
+
+  resources:
+    requests: { cpu: 10m, memory: 32Mi }
+    limits:   { cpu: 100m, memory: 128Mi }
+  # Example — cautious scale-down (10 min stabilization + 1 pod / 5 min):
+  #   behavior:
+  #     scaleDown:
+  #       stabilizationWindowSeconds: 600
+  #       policies:
+  #         - type: Pods
+  #           value: 1
+  #           periodSeconds: 300
+  #     scaleUp:
+  #       stabilizationWindowSeconds: 30
+  #       policies:
+  #         - type: Pods
+  #           value: 2
+  #           periodSeconds: 60
+
+# =============================================================================
+# Time-of-day scaling — CronJobs that patch HPA min/max at scheduled times
+# =============================================================================
+# Chart-native (no KEDA/CronScaler dep): each entry emits one CronJob that
+# runs `kubectl patch hpa` at its schedule to adjust the HPA's min/max
+# window. Useful for business-hour warmup + off-hour cooldown.
+#
+# Requires hpa.enabled=true — CronJobs no-op if the HPA doesn't exist.
+scaleSchedule: []
+# Example — weekdays ramp up at 08:00, ramp down at 20:00, tight on weekends:
+#   scaleSchedule:
+#     - name: business-hours
+#       schedule: "0 8 * * 1-5"           # weekdays 08:00 UTC
+#       minReplicas: 4
+#       maxReplicas: 8
+#     - name: off-hours
+#       schedule: "0 20 * * 1-5"          # weekdays 20:00 UTC
+#       minReplicas: 2
+#       maxReplicas: 3
+#     - name: weekend
+#       schedule: "0 0 * * 6"             # Saturday 00:00 UTC
+#       minReplicas: 2
+#       maxReplicas: 2
+#     # Optional per-entry timezone (K8s 1.27+). Requires cluster CronJob
+#     # timezone support; falls back to UTC on older versions.
+#     #   timeZone: "Europe/Paris"
+
+# =============================================================================
 # openldap-cli — used by all sync Jobs (ppolicy, users, groups) as Helm
 # post-install / post-upgrade hooks. CLI + kubectl are downloaded on the fly
 # from GitHub / dl.k8s.io so no custom image build is required.

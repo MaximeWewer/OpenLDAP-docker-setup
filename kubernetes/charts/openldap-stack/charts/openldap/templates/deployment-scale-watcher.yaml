@@ -1,0 +1,84 @@
+{{- /*
+Scale watcher — a 1-replica Deployment that watches STS.spec.replicas and
+issues `kubectl rollout restart` on change so every existing pod reruns
+bootstrap and reconciles cn=config against the new peer count.
+
+Rationale: helm-driven scaling changes .Values.replicaCount → the STS
+PodTemplate's checksum/topology annotation flips → K8s rolls all pods
+automatically. But HPA changes STS.spec.replicas WITHOUT touching the
+values or the annotation, so existing pods never restart. The watcher
+closes that gap.
+
+Emitted only when mode=multi-master AND (hpa.enabled OR scaleSchedule) —
+manual scaling doesn't need it, and standalone/mirror have fixed replicas.
+*/}}
+{{- if and (eq .Values.mode "multi-master") (or .Values.hpa.enabled .Values.scaleSchedule) -}}
+{{- $fullName := include "openldap.fullname" . -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $fullName }}-scale-watcher
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "openldap.labels" . | nindent 4 }}
+    app.kubernetes.io/component: scale-watcher
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "openldap.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: scale-watcher
+  template:
+    metadata:
+      labels:
+        {{- include "openldap.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: scale-watcher
+    spec:
+      serviceAccountName: {{ $fullName }}-sync
+      automountServiceAccountToken: true
+      securityContext:
+        # apk add + writes to /usr/local/bin need root — same as the sync
+        # Jobs, which run rootful for the same reason. slapd itself is
+        # unaffected (runs in a different pod/container).
+        runAsNonRoot: false
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: watcher
+          image: "{{ .Values.cli.image.repository }}:{{ .Values.cli.image.tag }}"
+          imagePullPolicy: {{ .Values.cli.image.pullPolicy }}
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -eu
+              STS={{ $fullName | quote }}
+              NS={{ .Release.Namespace | quote }}
+              KUBECTL_URL="https://dl.k8s.io/release/{{ .Values.cli.kubectlVersion }}/bin/linux/amd64/kubectl"
+              if ! command -v kubectl >/dev/null 2>&1; then
+                echo "[scale-watcher] installing kubectl {{ .Values.cli.kubectlVersion }}"
+                apk add --no-cache curl ca-certificates >/dev/null
+                curl --retry 3 --retry-delay 3 -fsSL "${KUBECTL_URL}" -o /usr/local/bin/kubectl
+                chmod +x /usr/local/bin/kubectl
+              fi
+              LAST=""
+              echo "[scale-watcher] watching sts/${STS} in ns/${NS} (poll={{ .Values.scaleWatcher.pollIntervalSeconds | default 10 }}s)"
+              while true; do
+                CURRENT=$(kubectl -n "${NS}" get sts "${STS}" \
+                  -o jsonpath='{.spec.replicas}' 2>/dev/null || echo "")
+                if [ -n "${CURRENT}" ] && [ -n "${LAST}" ] && [ "${CURRENT}" != "${LAST}" ]; then
+                  echo "[scale-watcher] spec.replicas changed ${LAST} -> ${CURRENT} — rolling restart"
+                  # `kubectl rollout restart` stamps kubectl.k8s.io/restartedAt
+                  # on the PodTemplate → K8s does an orderly rolling restart.
+                  # On each pod's boot, the bootstrap initContainer fetches
+                  # the live spec.replicas (Fix A), sees the new topology
+                  # hash, and reconciles cn=config.
+                  kubectl -n "${NS}" rollout restart sts "${STS}" || true
+                fi
+                [ -n "${CURRENT}" ] && LAST="${CURRENT}"
+                sleep {{ .Values.scaleWatcher.pollIntervalSeconds | default 10 }}
+              done
+          resources:
+            {{- toYaml .Values.scaleWatcher.resources | nindent 12 }}
+{{- end }}

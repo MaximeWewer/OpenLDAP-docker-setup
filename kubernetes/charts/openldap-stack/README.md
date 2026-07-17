@@ -37,6 +37,7 @@ Enable the UIs with `--set phpldapadmin.enabled=true` and/or
 - Backup / DR playbook: [`../../docs/backup-restore.md`](../../docs/backup-restore.md)
 - Sizing & MAP_FULL recipe: [`../../docs/sizing.md`](../../docs/sizing.md)
 - Migrate from Docker Compose: [`../../docs/migrate-from-docker.md`](../../docs/migrate-from-docker.md)
+- Scaling (HPA, cron-scaler, auto-reconcile): [`../../docs/scaling.md`](../../docs/scaling.md)
 - K8s / CNI / optional-dep compatibility: [`../../docs/compatibility.md`](../../docs/compatibility.md)
 - GitOps (Argo CD + Flux): [`../../gitops/`](../../gitops/)
 - Cross-cluster HA bootstrap: [`../../cross-cluster/README.md`](../../cross-cluster/README.md)
@@ -148,6 +149,18 @@ Kubernetes: `>=1.27.0-0`
 | openldap.extraVolumes | list | `[]` |  |
 | openldap.groups | list | `[]` |  |
 | openldap.headlessService.annotations | object | `{}` |  |
+| openldap.hpa.behavior | object | `{}` |  |
+| openldap.hpa.enabled | bool | `false` |  |
+| openldap.hpa.maxReplicas | int | `5` |  |
+| openldap.hpa.metrics[0].resource.name | string | `"cpu"` |  |
+| openldap.hpa.metrics[0].resource.target.averageUtilization | int | `70` |  |
+| openldap.hpa.metrics[0].resource.target.type | string | `"Utilization"` |  |
+| openldap.hpa.metrics[0].type | string | `"Resource"` |  |
+| openldap.hpa.metrics[1].resource.name | string | `"memory"` |  |
+| openldap.hpa.metrics[1].resource.target.averageUtilization | int | `80` |  |
+| openldap.hpa.metrics[1].resource.target.type | string | `"Utilization"` |  |
+| openldap.hpa.metrics[1].type | string | `"Resource"` |  |
+| openldap.hpa.minReplicas | int | `2` |  |
 | openldap.image.pullPolicy | string | `"IfNotPresent"` |  |
 | openldap.image.repository | string | `"cleanstart/openldap"` |  |
 | openldap.image.tag | string | `"2.6.13"` |  |
@@ -259,6 +272,12 @@ Kubernetes: `>=1.27.0-0`
 | openldap.resources.limits.memory | string | `"1Gi"` |  |
 | openldap.resources.requests.cpu | string | `"100m"` |  |
 | openldap.resources.requests.memory | string | `"256Mi"` |  |
+| openldap.scaleSchedule | list | `[]` |  |
+| openldap.scaleWatcher.pollIntervalSeconds | int | `10` |  |
+| openldap.scaleWatcher.resources.limits.cpu | string | `"100m"` |  |
+| openldap.scaleWatcher.resources.limits.memory | string | `"128Mi"` |  |
+| openldap.scaleWatcher.resources.requests.cpu | string | `"10m"` |  |
+| openldap.scaleWatcher.resources.requests.memory | string | `"32Mi"` |  |
 | openldap.secrets.backend | string | `"kubernetes"` |  |
 | openldap.secrets.externalSecrets.pathPrefix | string | `""` |  |
 | openldap.secrets.externalSecrets.secretStore.kind | string | `"ClusterSecretStore"` |  |
