@@ -27,7 +27,7 @@ services:
         max-file: "5"
 
   haproxy:
-    image: haproxy:3.3.12-alpine
+    image: haproxy:3.4.2-alpine
     container_name: haproxy-ldap
     hostname: haproxy-${SERVER_ID:-1}
     restart: always

@@ -110,8 +110,8 @@ Kubernetes: `>=1.27.0-0`
 | openldap.cli.downloadUrl | string | `"https://github.com/maximewewer/openldap-cli/releases/download"` |  |
 | openldap.cli.image.pullPolicy | string | `"IfNotPresent"` |  |
 | openldap.cli.image.repository | string | `"alpine"` |  |
-| openldap.cli.image.tag | string | `"3.22"` |  |
-| openldap.cli.kubectlVersion | string | `"v1.29.4"` |  |
+| openldap.cli.image.tag | string | `"3.24"` |  |
+| openldap.cli.kubectlVersion | string | `"v1.36.2"` |  |
 | openldap.cli.resources.limits.cpu | string | `"500m"` |  |
 | openldap.cli.resources.limits.memory | string | `"256Mi"` |  |
 | openldap.cli.resources.requests.cpu | string | `"50m"` |  |
@@ -165,7 +165,7 @@ Kubernetes: `>=1.27.0-0`
 | openldap.initImage.packages | string | `"openldap openldap-clients openldap-back-mdb openldap-overlay-all"` |  |
 | openldap.initImage.pullPolicy | string | `"IfNotPresent"` |  |
 | openldap.initImage.repository | string | `"alpine"` |  |
-| openldap.initImage.tag | string | `"3.22"` |  |
+| openldap.initImage.tag | string | `"3.24"` |  |
 | openldap.livenessProbe.failureThreshold | int | `6` |  |
 | openldap.livenessProbe.initialDelaySeconds | int | `30` |  |
 | openldap.livenessProbe.periodSeconds | int | `30` |  |
@@ -305,7 +305,7 @@ Kubernetes: `>=1.27.0-0`
 | openldap.tls.job.commonName | string | `""` |  |
 | openldap.tls.job.image.pullPolicy | string | `"IfNotPresent"` |  |
 | openldap.tls.job.image.repository | string | `"alpine"` |  |
-| openldap.tls.job.image.tag | string | `"3.22"` |  |
+| openldap.tls.job.image.tag | string | `"3.24"` |  |
 | openldap.tls.job.renewThresholdDays | int | `30` |  |
 | openldap.tls.job.resources.limits.cpu | string | `"200m"` |  |
 | openldap.tls.job.resources.limits.memory | string | `"128Mi"` |  |

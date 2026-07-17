@@ -17,8 +17,8 @@ pruned after `backup.retentionDays` (default 30).
 ```bash
 NS=ldap
 BACKUP_POD=$(kubectl -n $NS run backup-shell \
-  --image=alpine:3.22 --restart=Never --rm -it \
-  --overrides='{"spec":{"containers":[{"name":"t","image":"alpine:3.22",
+  --image=alpine:3.24 --restart=Never --rm -it \
+  --overrides='{"spec":{"containers":[{"name":"t","image":"alpine:3.24",
     "command":["sh","-c","sleep 3600"],
     "volumeMounts":[{"name":"b","mountPath":"/backup"}]}],
     "volumes":[{"name":"b","persistentVolumeClaim":{"claimName":"ldap-openldap-backup"}}]}}' \
@@ -36,7 +36,7 @@ Simpler alternative — the same PVC can be mounted read-only in a debug
 pod:
 
 ```bash
-kubectl -n $NS debug --image=alpine:3.22 pod/ldap-openldap-0 \
+kubectl -n $NS debug --image=alpine:3.24 pod/ldap-openldap-0 \
   --target=openldap -- ls /var/lib/openldap
 ```
 
@@ -125,7 +125,7 @@ survived, or the LDIF dumps are stored offsite).
          serviceAccountName: ldap-openldap-sync
          containers:
          - name: restore
-           image: alpine:3.22
+           image: alpine:3.24
            command: [sh,-c]
            args:
            - |
@@ -174,7 +174,7 @@ from values.yaml. Restore config ONLY when:
 ```bash
 # Pod-0 stopped (statefulset scaled to 0), then:
 kubectl -n ldap run cfg-restore \
-  --image=alpine:3.22 --restart=Never \
+  --image=alpine:3.24 --restart=Never \
   --overrides='...' \
   -- sh -c 'openldap-cli backup restore /backup/config_20260716.ldif.gz \
              --stop-on-error'

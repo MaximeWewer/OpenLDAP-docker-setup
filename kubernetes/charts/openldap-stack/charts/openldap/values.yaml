@@ -21,7 +21,7 @@ args: []
 # initContainer installs them at runtime so no custom image build is needed.
 initImage:
   repository: alpine
-  tag: "3.22"
+  tag: "3.24"
   pullPolicy: IfNotPresent
   # Additional apk packages to install for the bootstrap (kept minimal).
   packages: "openldap openldap-clients openldap-back-mdb openldap-overlay-all"
@@ -292,7 +292,7 @@ tls:
     rollingRestartOnRenew: true
     image:
       repository: alpine
-      tag: "3.22"
+      tag: "3.24"
       pullPolicy: IfNotPresent
     resources:
       requests: { cpu: 20m, memory: 32Mi }
@@ -417,11 +417,11 @@ readOnlyReplicas:
 cli:
   image:
     repository: alpine
-    tag: "3.22"
+    tag: "3.24"
     pullPolicy: IfNotPresent
   version: "v2026.7.4"
   downloadUrl: "https://github.com/maximewewer/openldap-cli/releases/download"
-  kubectlVersion: "v1.29.4"
+  kubectlVersion: "v1.36.2"
 
   # Wait for LDAP to be reachable before running sync scripts (Job startup).
   waitForLdap:

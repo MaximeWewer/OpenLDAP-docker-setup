@@ -49,7 +49,7 @@ matching feature is enabled.
 
 - **Runtime**: `cleanstart/openldap:2.6.13` (distroless, ~55 MB). Ships
   slapd + back_mdb + overlays; no shell.
-- **Init**: `alpine:3.22` (~7 MB). Installs `openldap`,
+- **Init**: `alpine:3.24` (~7 MB). Installs `openldap`,
   `openldap-back-mdb`, `openldap-overlay-all`, `openldap-clients` at
   runtime — the OpenLDAP version pulled from Alpine is 2.6.6, which is
   wire-compatible with cleanstart 2.6.13 for slapadd bootstrap.
@@ -67,7 +67,7 @@ Both hold across every 2.6 release.
 | Binary | Default version | Where |
 |--------|-----------------|-------|
 | `openldap-cli` | v2026.7.4 | `openldap.cli.version` — pinned per release for reproducibility. |
-| `kubectl` | v1.29.4 | `openldap.cli.kubectlVersion` — used by sync/backup/tls Jobs for Secret CRUD + STS rollout. |
+| `kubectl` | v1.36.2 | `openldap.cli.kubectlVersion` — used by sync/backup/tls Jobs for Secret CRUD + STS rollout. |
 
 ## Prometheus exporter
 
