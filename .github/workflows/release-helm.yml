@@ -5,16 +5,20 @@ on:
   pull_request:
     types: [closed]
     branches: [main]
+    paths:
+      - 'kubernetes/charts/**'
 
 jobs:
   release:
     runs-on: ubuntu-latest
+    # Fire on manual dispatch OR on ANY merged PR touching the chart tree
+    # (path-scoped above). The old MISP-inherited `head.ref == chore/update-versions`
+    # filter never matched this repo's direct-to-main flow.
     if: >
       github.event_name == 'workflow_dispatch' ||
-      (github.event.pull_request.merged == true &&
-       github.event.pull_request.head.ref == 'chore/update-versions')
+      github.event.pull_request.merged == true
     permissions:
-      contents: read
+      contents: write        # needed to push the chart-vX.Y.Z git tag
       packages: write
 
     env:
@@ -24,6 +28,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+        with:
+          fetch-depth: 0     # needed for tagging
 
       - name: Install Helm
         uses: azure/setup-helm@v5
@@ -39,15 +45,44 @@ jobs:
         run: |
           VERSION=$(grep '^version:' ${CHART_DIR}/Chart.yaml | awk '{print $2}')
           echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "tag=chart-v${VERSION}" >> $GITHUB_OUTPUT
           echo "Releasing chart version: $VERSION"
 
-      - name: Login to GitHub Container Registry
+      - name: Fail early if the tag already exists
         run: |
-          echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io -u ${{ github.actor }} --password-stdin
+          if git rev-parse "refs/tags/${{ steps.chart.outputs.tag }}" >/dev/null 2>&1; then
+            echo "::error::Tag ${{ steps.chart.outputs.tag }} already exists — bump Chart.yaml version before re-running."
+            exit 1
+          fi
 
       - name: Update chart dependencies
         run: |
           helm dependency update ${CHART_DIR}
+
+      - name: Lint (fail-fast on template / values issues)
+        run: |
+          for chart in ${CHART_DIR}/charts/*/; do
+            helm lint "$chart"
+          done
+          helm lint ${CHART_DIR}
+
+      - name: Render (fail-fast on runtime template errors)
+        run: |
+          # Rendering the umbrella with a couple of the heavier feature flags
+          # on catches template errors that plain `helm lint` misses.
+          helm template test ${CHART_DIR} \
+            --set openldap.mode=multi-master \
+            --set openldap.replicaCount=2 \
+            --set openldap.hpa.enabled=true \
+            --set 'openldap.scaleSchedule[0].name=biz' \
+            --set 'openldap.scaleSchedule[0].schedule=0 8 * * 1-5' \
+            --set 'openldap.scaleSchedule[0].minReplicas=2' \
+            --set 'openldap.scaleSchedule[0].maxReplicas=4' \
+            > /dev/null
+
+      - name: Login to GitHub Container Registry
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io -u ${{ github.actor }} --password-stdin
 
       - name: Package Helm chart
         run: |
