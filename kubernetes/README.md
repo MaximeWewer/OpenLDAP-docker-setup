@@ -188,14 +188,26 @@ Two flows: **declarative** (`values.yaml` reconciled by sync Jobs on every upgra
 
 ### Declarative flow (sync Jobs)
 
-`openldap.users`, `openldap.groups` and `openldap.policies` are the source of truth for the directory content. On every `helm install/upgrade`, three post-install/upgrade Jobs run in order (weights 5 / 10 / 15) and drive [openldap-cli](https://github.com/maximewewer/openldap-cli) against the LDAP Service:
+Six values blocks (`openldap.overlays`, `openldap.policies`, `openldap.acls`, `openldap.treeGrants`, `openldap.users`, `openldap.groups`) are the source of truth for the directory content and its cn=config surface. On every `helm install/upgrade`, one post-install/upgrade Job per non-empty block runs in weight order and drives [openldap-cli](https://github.com/maximewewer/openldap-cli) against the LDAP Service:
 
-- **`ppolicy`** — `openldap-cli ppolicy set <name> [--min-length …]` idempotent create/update.
-- **`users`** — `openldap-cli user info` → `user add` (with generated pw + Secret) OR `user set` for drift; on removal, `user delete` or `user set pwdAccountLockedTime` depending on `onUserRemove`.
-- **`groups`** — `openldap-cli group create/add-member/remove-member` reconciling `members` against LDAP.
+| Weight | Job | CLI backing | Notes |
+|--------|-----|-------------|-------|
+| 4 | `overlays` | `config overlay enable/disable` | Loads modules + toggles overlays (memberof, refint, ppolicy…). Runs first so downstream Jobs see the overlays already active. |
+| 5 | `ppolicy` | `ppolicy set` | Idempotent create/update of policy templates under `ou=policies`. |
+| 8 | `acls` | `config acl grant/revoke` | Chart-owned grantee (group|dn); revoke-then-grant on each upgrade. |
+| 9 | `tree-grants` | `svc grant/revoke` | Tree-scoped ACL helper — container + entry rules for a service account. |
+| 10 | `users` | `user add/set/delete` | Auto-generated passwords land in `<release>-openldap-user-<uid>` Secrets. |
+| 15 | `groups` | `group create/add-member/remove-member/set` | Reconciles `members` + description. |
+
+Drift removal for `acls` / `treeGrants` / `overlays` uses a chart-managed ConfigMap `<release>-openldap-sync-state` (one JSON key per phase) that snapshots the previously-applied set — entries removed from `values.yaml` on the next upgrade are revoked / disabled automatically.
 
 ```yaml
 openldap:
+  overlays:
+    - name: memberof                                    # module auto-loaded
+      enable: true
+    - name: refint
+      enable: true
   policies:
     - cn: strong
       min-length: 12
@@ -214,13 +226,28 @@ openldap:
     - cn: devs
       description: Development team
       members: [alice, bob]      # UIDs
+    - cn: readers
+      description: Read-only group
+      members: [alice]
   onUserRemove: delete           # or `lock` — pwdAccountLockedTime instead
   onGroupRemove: delete
+  acls:                          # config acl grant, one clause per grantee
+    - name: readers-can-read-users
+      target: ou=users,dc=example,dc=org
+      group: readers
+      access: read
+  treeGrants:                    # svc grant — container + entry rules
+    - name: app-svc
+      tree: ou=users,dc=example,dc=org
+      access: read
+      membersOf: admins          # optional — narrow entry rule to a group
+  aclLintCronJob:                # daily `config acl lint`, fails on shadowed rules
+    enabled: true
 ```
 
 Passwords per user land in `<release>-openldap-user-<uid>`. Attribute changes reconcile on every upgrade. Group membership is expressed on the group side; the `memberOf` overlay auto-populates the user entry.
 
-The sync Jobs install `openldap-cli` + `kubectl` from GitHub / dl.k8s.io into a plain Alpine image at Job startup — no custom image build required. Their ServiceAccount is scoped strictly to Secret CRUD (and `statefulsets/patch` when TLS renewal needs a rolling restart) in the release namespace.
+The sync Jobs install `openldap-cli` + `kubectl` from GitHub / dl.k8s.io into a plain Alpine image at Job startup — no custom image build required. Their ServiceAccount is scoped strictly to Secret CRUD, ConfigMap get/create/patch for the sync-state (when `acls`/`treeGrants`/`overlays` are used), and `statefulsets/patch` when TLS renewal needs a rolling restart — all in the release namespace.
 
 ### Ad-hoc CLI use
 

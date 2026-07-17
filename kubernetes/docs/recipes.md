@@ -92,8 +92,16 @@ openldap:
     prometheusRule:
       enabled: true
 
-  # Users + groups + policy in the same values file — the sync Jobs
-  # reconcile them on every helm upgrade.
+  # Overlays, ppolicy, users, groups, ACLs and tree-scoped grants — all
+  # reconciled on every helm upgrade by the sync Jobs (weight order:
+  # overlays 4, ppolicy 5, acls 8, tree-grants 9, users 10, groups 15).
+  # Drift removal for acls/treeGrants/overlays uses a chart-managed
+  # ConfigMap `<release>-openldap-sync-state`.
+  overlays:
+    - name: memberof
+      enable: true
+    - name: refint
+      enable: true
   policies:
     - cn: strong
       min-length: 14
@@ -120,6 +128,21 @@ openldap:
     - cn: ops
       description: Operations team
       members: [alice, bob]
+    - cn: readers
+      description: Read-only group
+      members: [bob]
+  acls:                                # openldap-cli config acl grant
+    - name: readers-can-read-users
+      target: ou=users,dc=example,dc=org
+      group: readers
+      access: read
+  treeGrants:                          # openldap-cli svc grant (container + entry rules)
+    - name: grafana-svc
+      tree: ou=users,dc=example,dc=org
+      access: read
+  aclLintCronJob:                      # daily `config acl lint` — fails on shadowed rules
+    enabled: true
+    schedule: "0 6 * * *"
 ```
 
 ## 3. Multi-DC prod — 3 nodes × 2 clusters, external peers

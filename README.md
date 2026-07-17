@@ -6,10 +6,10 @@ runtime that matches your infrastructure.
 
 ## Layouts
 
-| Target | Path | Modes | Status |
-|--------|------|-------|--------|
-| **Docker Compose** | [`docker/`](docker/) | standalone · HA active-passive (MirrorMode) · HA active-active (N-way multi-master) | Ready |
-| **Kubernetes (Helm chart)** | [`kubernetes/`](kubernetes/) | standalone · mirror · multi-master · +cross-cluster mesh · +read-only replica pool | Ready |
+| Target | Path | Modes |
+|--------|------|-------|
+| **Docker Compose** | [`docker/`](docker/) | standalone · HA active-passive (MirrorMode) · HA active-active (N-way multi-master) |
+| **Kubernetes (Helm chart)** | [`kubernetes/`](kubernetes/) | standalone · mirror · multi-master · +cross-cluster mesh · +read-only replica pool |
 
 Both layouts share the same LDIF bootstrap, the same overlays (memberof,
 refint, ppolicy, dynlist, accesslog, syncprov) and the same
