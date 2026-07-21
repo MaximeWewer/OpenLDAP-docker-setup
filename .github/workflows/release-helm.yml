@@ -22,8 +22,8 @@ jobs:
       packages: write
 
     env:
-      CHART_DIR: kubernetes/charts/openldap-stack
-      CHART_NAME: openldap-stack
+      CHART_DIR: kubernetes/charts/openldap-platform
+      CHART_NAME: openldap-platform
 
     steps:
       - name: Checkout

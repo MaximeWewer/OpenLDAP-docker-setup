@@ -9,13 +9,13 @@
 apiVersion: source.toolkit.fluxcd.io/v1
 kind: GitRepository
 metadata:
-  name: openldap-stack
+  name: openldap-platform
   namespace: flux-system
 spec:
   interval: 5m
-  url: REPO_URL                    # e.g. https://github.com/maximewewer/openldap-setup
+  url: REPO_URL                    # e.g. https://github.com/maximewewer/openldap-platform
   ref:
     branch: main
   # Uncomment for a private repo:
   # secretRef:
-  #   name: openldap-stack-git-auth   # deploy key / token Secret in flux-system
+  #   name: openldap-platform-git-auth   # deploy key / token Secret in flux-system

@@ -10,7 +10,7 @@
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
-  name: openldap-stack
+  name: openldap-platform
   namespace: argocd
   finalizers:
     - resources-finalizer.argocd.argoproj.io    # cascade delete on app removal
@@ -18,9 +18,9 @@ spec:
   project: default
 
   source:
-    repoURL: REPO_URL                            # e.g. https://github.com/maximewewer/openldap-setup
+    repoURL: REPO_URL                            # e.g. https://github.com/maximewewer/openldap-platform
     targetRevision: main
-    path: kubernetes/charts/openldap-stack
+    path: kubernetes/charts/openldap-platform
     helm:
       # Override values here or point at a values file in the same repo.
       valueFiles:
@@ -69,11 +69,11 @@ spec:
   ignoreDifferences:
     - group: ""
       kind: Secret
-      name: openldap-stack-admin
+      name: openldap-platform-admin
       jsonPointers: [/data]
     - group: ""
       kind: Secret
-      name: openldap-stack-replicator
+      name: openldap-platform-replicator
       jsonPointers: [/data]
     - group: batch
       kind: Job

@@ -57,7 +57,7 @@ put_tls_secret() {
     | kubectl label -f - --local -o yaml \
         "app.kubernetes.io/managed-by=Helm" \
         "app.kubernetes.io/component=tls" \
-        "openldap.stack/release=${RELEASE_NAME}" \
+        "openldap.platform/release=${RELEASE_NAME}" \
     | kubectl apply -f - >/dev/null
 }
 

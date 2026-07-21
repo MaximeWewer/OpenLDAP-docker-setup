@@ -1,6 +1,6 @@
 # GitOps
 
-The `openldap-stack` chart is deliberately runner-agnostic — it is plain
+The `openldap-platform` chart is deliberately runner-agnostic — it is plain
 Helm and holds no controller/operator, so any GitOps engine that can drive
 Helm works out of the box. This directory ships reference manifests for
 **Argo CD** and **Flux**, plus notes on the couple of details worth calling
@@ -12,7 +12,7 @@ Two ways to point a GitOps runner at the chart:
 
 | Source | Pros | Cons |
 |--------|------|------|
-| **Git** — this repo at `kubernetes/charts/openldap-stack/` | Follows the same PR/review flow as everything else; per-branch overlays are trivial | Runner must resolve `file://` subchart deps (both Argo & Flux handle this) |
+| **Git** — this repo at `kubernetes/charts/openldap-platform/` | Follows the same PR/review flow as everything else; per-branch overlays are trivial | Runner must resolve `file://` subchart deps (both Argo & Flux handle this) |
 | **OCI registry** — publish the packaged chart to an OCI-compatible registry (`helm push oci://…`) | Immutable, signed, cache-friendly | Extra publish step in CI |
 
 The examples below use the Git path since the chart's subcharts are all
@@ -89,7 +89,7 @@ See [`flux/`](./flux/):
 ## Cross-cluster HA
 
 `replication.externalPeers` + `replication.serverIdBase` let you stitch
-several openldap-stack releases across clusters into a multi-master mesh.
-See [`../cross-cluster/README.md`](../cross-cluster/README.md) for the
+several openldap-platform releases across clusters into a multi-master mesh.
+See [`../docs/cross-cluster.md`](../docs/cross-cluster.md) for the
 bootstrap sequence — order matters, and the shared CA has to land on every
 cluster before the first peer comes up.

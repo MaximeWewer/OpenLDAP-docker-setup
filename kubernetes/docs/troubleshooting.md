@@ -82,7 +82,7 @@ re-create it, or manually align via `openldap-cli group info <cn>`.
 ### 8. Drift step deletes users you didn't expect
 
 The users sync uses the Secret label
-`openldap.stack/release=<release>,app.kubernetes.io/component=user-credentials`
+`openldap.platform/release=<release>,app.kubernetes.io/component=user-credentials`
 to identify "chart-owned" users. Anything with those labels but absent
 from `openldap.users[]` gets deleted (or locked, per `onUserRemove`).
 Solution: remove the Secret's label OR set `onUserRemove: lock`.
@@ -122,7 +122,7 @@ Common causes:
 `openssl s_client -connect <peer>:636 -showcerts` from a debug pod. If
 the peer's cert isn't signed by a CA in the local trust bundle, sync
 fails silently. Every peer must trust the SAME CA — the shared-CA path
-is documented in [`../cross-cluster/README.md`](../cross-cluster/README.md).
+is documented in [`cross-cluster.md`](cross-cluster.md).
 
 ## TLS backend = job
 

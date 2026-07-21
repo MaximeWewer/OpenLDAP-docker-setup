@@ -71,7 +71,7 @@ survived, or the LDIF dumps are stored offsite).
    reconstituted from the dump, not from the sync Jobs.
 
    ```bash
-   helm upgrade --install ldap kubernetes/charts/openldap-stack \
+   helm upgrade --install ldap kubernetes/charts/openldap-platform \
      -n ldap --create-namespace \
      -f my-values-no-sync.yaml
    ```

@@ -8,7 +8,7 @@
 #       app-of-apps.yaml               # this file
 #       envs/
 #         dev/
-#           application.yaml           # openldap-stack Application, dev overrides
+#           application.yaml           # openldap-platform Application, dev overrides
 #         stage/
 #           application.yaml
 #         prod/
@@ -19,7 +19,7 @@
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
-  name: openldap-stack-envs
+  name: openldap-platform-envs
   namespace: argocd
 spec:
   project: default

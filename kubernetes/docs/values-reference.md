@@ -4,10 +4,10 @@ Auto-generated exhaustive tables (one per chart) via
 [helm-docs](https://github.com/norwoodj/helm-docs) — every knob with its
 current default, straight out of the chart's `values.yaml`:
 
-- Umbrella: [`openldap-stack/README.md`](../charts/openldap-stack/README.md)
-- openldap subchart: [`charts/openldap/README.md`](../charts/openldap-stack/charts/openldap/README.md)
-- phpldapadmin subchart: [`charts/phpldapadmin/README.md`](../charts/openldap-stack/charts/phpldapadmin/README.md)
-- self-service-password subchart: [`charts/self-service-password/README.md`](../charts/openldap-stack/charts/self-service-password/README.md)
+- Umbrella: [`openldap-platform/README.md`](../charts/openldap-platform/README.md)
+- openldap subchart: [`charts/openldap/README.md`](../charts/openldap-platform/charts/openldap/README.md)
+- phpldapadmin subchart: [`charts/phpldapadmin/README.md`](../charts/openldap-platform/charts/phpldapadmin/README.md)
+- self-service-password subchart: [`charts/self-service-password/README.md`](../charts/openldap-platform/charts/self-service-password/README.md)
 
 Regenerate after touching a `values.yaml`:
 

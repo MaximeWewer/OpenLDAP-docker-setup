@@ -154,7 +154,7 @@ Day-to-day directory administration (users, groups, service accounts, ppolicy, A
 
 > **[github.com/maximewewer/openldap-cli](https://github.com/maximewewer/openldap-cli)** — a single static Go binary (no runtime, no dependencies).
 
-This repo (`openldap-setup`) is now only responsible for **bootstrapping and operating the slapd container(s)** (compose, slapadd, TLS certs, HA replication wiring, physical backups).
+This repo (`openldap-platform`) is now only responsible for **bootstrapping and operating the slapd container(s)** (compose, slapadd, TLS certs, HA replication wiring, physical backups).
 
 ### Configure
 
@@ -366,7 +366,7 @@ Replace `<mode>` with your deployment directory. On HA, install the cron on **ev
 ```cron
 # Weekly check at 04:00 every Monday: renew if expiring within 30d, restart openldap if renewed.
 # (HA peer example - keep --san per-node)
-0 4 * * 1 cd /path/to/openldap-setup/<mode> && bash certs.sh --renew-threshold-days 30 --san "DNS:ldap2,IP:192.168.58.11" --restart --quiet >> /var/log/openldap-certs.log 2>&1
+0 4 * * 1 cd /path/to/openldap-platform/<mode> && bash certs.sh --renew-threshold-days 30 --san "DNS:ldap2,IP:192.168.58.11" --restart --quiet >> /var/log/openldap-certs.log 2>&1
 ```
 
 - `--quiet` keeps the log empty when no action is taken; only renewals/errors are recorded.
@@ -557,11 +557,11 @@ docker compose up -d
 ```bash
 # LDIF backup via CLI — recommended (no docker, no root, no slapd restart)
 # Positional file path; .ldif.gz auto-gzips the dump.
-0 22 * * * /usr/bin/openldap-cli backup data /path/to/openldap-setup/<mode>/backup/data_$(date +\%Y\%m\%d).ldif.gz 2>>/var/log/openldap-backup.log
-0 22 * * * /usr/bin/openldap-cli backup config /path/to/openldap-setup/<mode>/backup/config_$(date +\%Y\%m\%d).ldif.gz 2>>/var/log/openldap-backup.log
+0 22 * * * /usr/bin/openldap-cli backup data /path/to/openldap-platform/<mode>/backup/data_$(date +\%Y\%m\%d).ldif.gz 2>>/var/log/openldap-backup.log
+0 22 * * * /usr/bin/openldap-cli backup config /path/to/openldap-platform/<mode>/backup/config_$(date +\%Y\%m\%d).ldif.gz 2>>/var/log/openldap-backup.log
 
 # Retention: drop LDIF + tarballs older than 30 days
-0 23 * * * find /path/to/openldap-setup/<mode>/backup -type f \( -name "*.tar.gz" -o -name "*.ldif" -o -name "*.ldif.gz" \) -mtime +30 -delete
+0 23 * * * find /path/to/openldap-platform/<mode>/backup -type f \( -name "*.tar.gz" -o -name "*.ldif" -o -name "*.ldif.gz" \) -mtime +30 -delete
 ```
 
 ---

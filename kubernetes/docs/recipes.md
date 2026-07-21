@@ -4,7 +4,7 @@ Copy-paste `values.yaml` overlays for common shapes. Every recipe assumes
 the chart is installed from a Git checkout as:
 
 ```bash
-helm upgrade --install ldap kubernetes/charts/openldap-stack \
+helm upgrade --install ldap kubernetes/charts/openldap-platform \
   --namespace ldap --create-namespace \
   -f my-values.yaml
 ```
@@ -150,7 +150,7 @@ openldap:
 Two Kubernetes clusters (`dc1`, `dc2`) run 3 replicas each, forming a
 6-way multi-master mesh. Shared CA + shared replicator credentials
 provisioned via external-secrets. See
-[`../cross-cluster/README.md`](../cross-cluster/README.md) for the
+[`cross-cluster.md`](cross-cluster.md) for the
 bootstrap order.
 
 **dc1 overlay:**

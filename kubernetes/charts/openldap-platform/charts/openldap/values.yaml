@@ -562,7 +562,7 @@ policies: []
 # Generated passwords are stored in a Secret named
 #   `<release>-openldap-user-<uid>`
 # with key `password`. The Secret carries the label
-#   openldap.stack/user=<uid>
+#   openldap.platform/user=<uid>
 # so external systems can watch/list them.
 users: []
 # Example:

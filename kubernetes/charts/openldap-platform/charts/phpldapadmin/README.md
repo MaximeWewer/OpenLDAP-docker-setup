@@ -4,7 +4,7 @@ phpLDAPadmin 2.x web UI for browsing and editing the OpenLDAP directory.
 Env-driven configuration; binds against the sibling openldap subchart's
 Service by default.
 
-Normally installed via the umbrella [`openldap-stack`](../..) with
+Normally installed via the umbrella [`openldap-platform`](../..) with
 `--set phpldapadmin.enabled=true`. The LDAP host defaults to the
 sibling openldap Service (`<release>-openldap.<ns>.svc.cluster.local`).
 

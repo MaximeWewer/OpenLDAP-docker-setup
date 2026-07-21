@@ -11,7 +11,7 @@ metadata:
   labels:
     {{- include "openldap.labels" $ | nindent 4 }}
     app.kubernetes.io/component: scaler
-    openldap.stack/scaler-window: {{ .name }}
+    openldap.platform/scaler-window: {{ .name }}
 spec:
   schedule: {{ .schedule | quote }}
   {{- with .timeZone }}

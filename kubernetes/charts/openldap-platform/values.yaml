@@ -1,5 +1,5 @@
 # =============================================================================
-# openldap-stack — umbrella values
+# openldap-platform — umbrella values
 # =============================================================================
 # Every subchart's `values.yaml` is mirrored under its top-level key
 # (openldap / phpldapadmin / self-service-password). The chart pipeline
@@ -564,7 +564,7 @@ openldap:
   # Generated passwords are stored in a Secret named
   #   `<release>-openldap-user-<uid>`
   # with key `password`. The Secret carries the label
-  #   openldap.stack/user=<uid>
+  #   openldap.platform/user=<uid>
   # so external systems can watch/list them.
   users: []
   # Example:

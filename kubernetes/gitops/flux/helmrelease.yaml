@@ -8,7 +8,7 @@
 apiVersion: helm.toolkit.fluxcd.io/v2
 kind: HelmRelease
 metadata:
-  name: openldap-stack
+  name: openldap-platform
   namespace: ldap
 spec:
   interval: 15m
@@ -17,10 +17,10 @@ spec:
 
   chart:
     spec:
-      chart: kubernetes/charts/openldap-stack
+      chart: kubernetes/charts/openldap-platform
       sourceRef:
         kind: GitRepository
-        name: openldap-stack
+        name: openldap-platform
         namespace: flux-system
 
   install:

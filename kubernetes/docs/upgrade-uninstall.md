@@ -5,7 +5,7 @@
 ### Standard upgrade
 
 ```bash
-helm upgrade ldap kubernetes/charts/openldap-stack \
+helm upgrade ldap kubernetes/charts/openldap-platform \
   --namespace ldap \
   -f my-values.yaml
 ```
@@ -127,11 +127,11 @@ helm uninstall ldap -n $NS
 
 # Delete kept Secrets
 kubectl -n $NS delete secret \
-  -l app.kubernetes.io/part-of=openldap-stack
+  -l app.kubernetes.io/part-of=openldap-platform
 
 # Delete PVCs (this DESTROYS every entry in LDAP)
 kubectl -n $NS delete pvc \
-  -l app.kubernetes.io/part-of=openldap-stack
+  -l app.kubernetes.io/part-of=openldap-platform
 kubectl -n $NS delete pvc data-ldap-openldap-0 \
   data-ldap-openldap-1 data-ldap-openldap-2 \
   --ignore-not-found
@@ -165,5 +165,5 @@ values-schema change will be announced with:
   command.
 
 Rule of thumb until then: after `helm pull`ing a new chart version, run
-`helm template ldap kubernetes/charts/openldap-stack -f my-values.yaml`
+`helm template ldap kubernetes/charts/openldap-platform -f my-values.yaml`
 and diff against the previous render before applying.

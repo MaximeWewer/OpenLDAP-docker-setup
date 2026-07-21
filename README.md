@@ -1,4 +1,4 @@
-# OpenLDAP setup
+# OpenLDAP platform
 
 Production-oriented **OpenLDAP 2.6** deployment recipes, packaged per target
 platform. Same directory tree, same overlays, same companion CLI — pick the
@@ -61,7 +61,7 @@ Full docs: [`docker/README.md`](docker/README.md).
 ### Kubernetes
 
 ```bash
-helm upgrade --install ldap kubernetes/charts/openldap-stack \
+helm upgrade --install ldap kubernetes/charts/openldap-platform \
   --namespace ldap --create-namespace
 ```
 
@@ -76,12 +76,12 @@ Full docs: [`kubernetes/README.md`](kubernetes/README.md).
 Operator handbook: [`kubernetes/docs/`](kubernetes/docs/) (recipes,
 troubleshooting, sizing, backup/DR, migrate-from-docker, scaling, ...).
 GitOps + cross-cluster HA: [`kubernetes/gitops/`](kubernetes/gitops/) and
-[`kubernetes/cross-cluster/`](kubernetes/cross-cluster/).
+[`kubernetes/docs/cross-cluster.md`](kubernetes/docs/cross-cluster.md).
 
 ## Repository layout
 
 ```
-openldap-setup/
+openldap-platform/
 ├── docker/                      # Docker Compose recipes (standalone + 2 HA modes)
 │   ├── README.md                # comprehensive per-mode ops handbook
 │   ├── base-ldifs/              # shared bootstrap LDIFs (OUs, admin, policies)
@@ -91,11 +91,10 @@ openldap-setup/
 └── kubernetes/                  # Helm chart + operator handbook + test rig
     ├── README.md                # feature-complete chart overview
     ├── Makefile                 # docs / docs-check / lint / dep-update
-    ├── charts/openldap-stack/   # umbrella (openldap + phpldapadmin + SSP)
-    ├── docs/                    # operator handbook (recipes, troubleshooting, …)
+    ├── charts/openldap-platform/   # umbrella (openldap + phpldapadmin + SSP)
+    ├── docs/                    # operator handbook (recipes, troubleshooting, cross-cluster, scaling, …)
     ├── gitops/                  # Argo CD + Flux reference manifests
-    ├── cross-cluster/           # multi-cluster HA bootstrap runbook
-    └── tests/cross-cluster/     # 2-VM Vagrant + minikube rig
+    └── tests/cross-cluster/     # 2-VM Vagrant + minikube rig for cross-cluster HA
 ```
 
 ## License

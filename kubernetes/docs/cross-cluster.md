@@ -1,7 +1,7 @@
 # Cross-cluster HA bootstrap
 
 The chart supports N-way multi-master replication across independent
-Kubernetes clusters — every cluster runs its own openldap-stack release,
+Kubernetes clusters — every cluster runs its own openldap-platform release,
 and each peer syncs against the others through `replication.externalPeers`.
 
 The steps below assume two data centres (`dc1`, `dc2`); scale the pattern to
@@ -69,7 +69,7 @@ openldap:
 ```
 
 ```bash
-helm upgrade --install ldap kubernetes/charts/openldap-stack \
+helm upgrade --install ldap kubernetes/charts/openldap-platform \
   -n ldap --create-namespace -f dc1-values.yaml
 ```
 
@@ -114,7 +114,7 @@ LDIF locally — instead, syncrepl pulls the full tree from dc1 within a few
 seconds of first bind.
 
 ```bash
-helm upgrade --install ldap kubernetes/charts/openldap-stack \
+helm upgrade --install ldap kubernetes/charts/openldap-platform \
   -n ldap --create-namespace -f dc2-values.yaml
 ```
 

@@ -1,13 +1,14 @@
-# openldap-stack
+# openldap-platform
 
-Umbrella chart for the OpenLDAP stack: OpenLDAP 2.6 server, phpLDAPadmin,
-and Self Service Password. Declarative GitOps-friendly administration via
-openldap-cli (https://github.com/maximewewer/openldap-cli).
+Umbrella chart for the OpenLDAP platform — OpenLDAP server (HA-ready
+StatefulSet + delta-syncrepl), phpLDAPadmin, and Self Service Password.
+Declarative GitOps-friendly administration via openldap-cli
+(https://github.com/maximewewer/openldap-cli).
 
 ## TL;DR
 
 ```bash
-helm upgrade --install ldap kubernetes/charts/openldap-stack \
+helm upgrade --install ldap kubernetes/charts/openldap-platform \
   --namespace ldap --create-namespace
 ```
 
@@ -40,7 +41,7 @@ Enable the UIs with `--set phpldapadmin.enabled=true` and/or
 - Scaling (HPA, cron-scaler, auto-reconcile): [`../../docs/scaling.md`](../../docs/scaling.md)
 - K8s / CNI / optional-dep compatibility: [`../../docs/compatibility.md`](../../docs/compatibility.md)
 - GitOps (Argo CD + Flux): [`../../gitops/`](../../gitops/)
-- Cross-cluster HA bootstrap: [`../../cross-cluster/README.md`](../../cross-cluster/README.md)
+- Cross-cluster HA bootstrap: [`../../docs/cross-cluster.md`](../../docs/cross-cluster.md)
 
 ## Regenerating this README
 

@@ -1,0 +1,81 @@
+apiVersion: v2
+name: openldap-platform
+description: |
+  Umbrella chart for the OpenLDAP platform — OpenLDAP server (HA-ready
+  StatefulSet + delta-syncrepl), phpLDAPadmin, and Self Service Password.
+  Declarative GitOps-friendly administration via openldap-cli
+  (https://github.com/maximewewer/openldap-cli).
+type: application
+version: 2026.7.1
+appVersion: "2.6.13"
+kubeVersion: ">=1.27.0-0"
+icon: https://www.openldap.org/images/headers/LDAPlogo.gif
+keywords:
+  - openldap
+  - ldap
+  - directory
+  - authentication
+  - phpldapadmin
+  - self-service-password
+  - ha
+  - multi-master
+home: https://github.com/maximewewer/openldap-platform
+sources:
+  - https://github.com/maximewewer/openldap-platform
+  - https://github.com/maximewewer/openldap-cli
+  - https://github.com/maximewewer/openldap_prometheus_exporter
+maintainers:
+  - name: maximewewer
+    url: https://github.com/maximewewer
+# =============================================================================
+# ArtifactHub annotations — https://artifacthub.io/docs/topics/annotations/helm/
+# =============================================================================
+annotations:
+  artifacthub.io/category: security
+  artifacthub.io/license: MIT
+  artifacthub.io/prerelease: "false"
+  artifacthub.io/containsSecurityUpdates: "false"
+  artifacthub.io/operator: "false"
+  artifacthub.io/links: |
+    - name: source
+      url: https://github.com/maximewewer/openldap-platform
+    - name: openldap-cli
+      url: https://github.com/maximewewer/openldap-cli
+    - name: prometheus exporter
+      url: https://github.com/maximewewer/openldap_prometheus_exporter
+    - name: docs - recipes
+      url: https://github.com/maximewewer/openldap-platform/blob/main/kubernetes/docs/recipes.md
+    - name: docs - scaling
+      url: https://github.com/maximewewer/openldap-platform/blob/main/kubernetes/docs/scaling.md
+    - name: docs - backup / restore
+      url: https://github.com/maximewewer/openldap-platform/blob/main/kubernetes/docs/backup-restore.md
+    - name: docs - troubleshooting
+      url: https://github.com/maximewewer/openldap-platform/blob/main/kubernetes/docs/troubleshooting.md
+  artifacthub.io/images: |
+    - name: openldap
+      image: cleanstart/openldap:2.6.13
+    - name: bootstrap-init
+      image: alpine:3.24
+    - name: phpldapadmin
+      image: phpldapadmin/phpldapadmin:2.3.11
+    - name: self-service-password
+      image: ltbproject/self-service-password:1.8.1
+    - name: openldap-exporter
+      image: ghcr.io/maximewewer/openldap_prometheus_exporter:v2026.7.1
+  artifacthub.io/recommendations: |
+    - url: https://artifacthub.io/packages/helm/cert-manager/cert-manager
+    - url: https://artifacthub.io/packages/helm/external-secrets-operator/external-secrets
+    - url: https://artifacthub.io/packages/helm/prometheus-community/kube-prometheus-stack
+dependencies:
+  - name: openldap
+    version: 2026.7.1
+    repository: "file://charts/openldap"
+    condition: openldap.enabled
+  - name: phpldapadmin
+    version: 2026.7.1
+    repository: "file://charts/phpldapadmin"
+    condition: phpldapadmin.enabled
+  - name: self-service-password
+    version: 2026.7.1
+    repository: "file://charts/self-service-password"
+    condition: self-service-password.enabled

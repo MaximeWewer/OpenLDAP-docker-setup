@@ -49,8 +49,8 @@ install_dc() {
     --dry-run=client -o yaml | sudo kubectl apply -f -"
 
   echo "=== [${dc}] helm upgrade --install ==="
-  vagrant ssh "$dc" -c "cd /vagrant/kubernetes/charts/openldap-stack && sudo helm dependency update >/dev/null 2>&1 || true; \
-    sudo helm upgrade --install ldap /vagrant/kubernetes/charts/openldap-stack -n ldap \
+  vagrant ssh "$dc" -c "cd /vagrant/kubernetes/charts/openldap-platform && sudo helm dependency update >/dev/null 2>&1 || true; \
+    sudo helm upgrade --install ldap /vagrant/kubernetes/charts/openldap-platform -n ldap \
       -f ${REMOTE_ROOT}/${values} --wait --timeout 6m"
 
   # NodePort 30636 lives on the minikube docker network (192.168.49.2)

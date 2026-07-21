@@ -98,7 +98,7 @@ them to survive scale events.
 ## Manual scaling
 
 ```bash
-helm upgrade ldap kubernetes/charts/openldap-stack \
+helm upgrade ldap kubernetes/charts/openldap-platform \
   --namespace ldap --reuse-values \
   --set openldap.replicaCount=5
 ```

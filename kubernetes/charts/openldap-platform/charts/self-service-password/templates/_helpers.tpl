@@ -24,7 +24,7 @@ helm.sh/chart: {{ include "ssp.chart" . }}
 {{ include "ssp.selectorLabels" . }}
 app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
 app.kubernetes.io/managed-by: {{ .Release.Service }}
-app.kubernetes.io/part-of: openldap-stack
+app.kubernetes.io/part-of: openldap-platform
 {{- with .Values.podLabels }}
 {{ toYaml . }}
 {{- end }}

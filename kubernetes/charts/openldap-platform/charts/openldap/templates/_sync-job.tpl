@@ -19,7 +19,7 @@ metadata:
   labels:
     {{- include "openldap.labels" $ctx | nindent 4 }}
     app.kubernetes.io/component: sync
-    openldap.stack/sync-role: {{ .name }}
+    openldap.platform/sync-role: {{ .name }}
   annotations:
     helm.sh/hook: post-install,post-upgrade
     helm.sh/hook-weight: "{{ .weight }}"
@@ -39,7 +39,7 @@ spec:
       labels:
         {{- include "openldap.selectorLabels" $ctx | nindent 8 }}
         app.kubernetes.io/component: sync
-        openldap.stack/sync-role: {{ .name }}
+        openldap.platform/sync-role: {{ .name }}
     spec:
       restartPolicy: Never
       serviceAccountName: {{ $fullName }}-sync

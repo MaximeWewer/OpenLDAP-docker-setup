@@ -163,11 +163,11 @@ Full matrix: [`docs/compatibility.md`](docs/compatibility.md).
 
 ```bash
 # Standalone (single pod, no TLS, no ingress)
-helm upgrade --install ldap kubernetes/charts/openldap-stack \
+helm upgrade --install ldap kubernetes/charts/openldap-platform \
   --namespace ldap --create-namespace
 
 # 3-way multi-master HA + phpLDAPadmin + SSP
-helm upgrade --install ldap kubernetes/charts/openldap-stack \
+helm upgrade --install ldap kubernetes/charts/openldap-platform \
   --namespace ldap --create-namespace \
   --set openldap.mode=multi-master --set openldap.replicaCount=3 \
   --set phpldapadmin.enabled=true \
@@ -305,7 +305,7 @@ Chart-managed passwords survive `helm uninstall` (annotated `helm.sh/resource-po
 kubectl -n ldap delete secret ldap-openldap-admin
 
 # 2. Trigger a re-render.
-helm upgrade ldap kubernetes/charts/openldap-stack -n ldap --reuse-values
+helm upgrade ldap kubernetes/charts/openldap-platform -n ldap --reuse-values
 
 # 3. Roll the StatefulSet so slapd picks up the new hash on next bind.
 kubectl -n ldap rollout restart statefulset/ldap-openldap
@@ -315,7 +315,7 @@ For per-user passwords:
 
 ```bash
 kubectl -n ldap delete secret ldap-openldap-user-alice
-helm upgrade ldap kubernetes/charts/openldap-stack -n ldap --reuse-values
+helm upgrade ldap kubernetes/charts/openldap-platform -n ldap --reuse-values
 #   sync Job re-detects alice, generates a fresh password, writes it back
 #   to the Secret (and via `openldap-cli user passwd` into the tree).
 ```
@@ -606,7 +606,7 @@ openldap:
     externalPeers: [ldaps://ldap.dc1.example.com:636]
 ```
 
-Full bootstrap runbook: [`cross-cluster/README.md`](cross-cluster/README.md).
+Full bootstrap runbook: [`docs/cross-cluster.md`](docs/cross-cluster.md).
 2-VM Vagrant + minikube test rig: [`tests/cross-cluster/`](tests/cross-cluster/).
 
 ---
@@ -627,14 +627,14 @@ Operator handbook — task-oriented, deep-dive:
 | [`docs/values-reference.md`](docs/values-reference.md)     | Curated top-30 values + pointer to auto-generated per-chart READMEs |
 | [`docs/compatibility.md`](docs/compatibility.md)           | K8s / Helm / CNI / optional-dep version matrix                      |
 | [`gitops/README.md`](gitops/README.md)                     | Argo CD + Flux integration (Helm hooks, Secret preservation, SSA)   |
-| [`cross-cluster/README.md`](cross-cluster/README.md)       | Multi-cluster HA bootstrap runbook (prereqs, seed order, CA rotation) |
+| [`docs/cross-cluster.md`](docs/cross-cluster.md)           | Multi-cluster HA bootstrap runbook (prereqs, seed order, CA rotation) |
 | [`tests/cross-cluster/README.md`](tests/cross-cluster/README.md) | 2-VM Vagrant + minikube rig (validate cross-cluster HA locally)  |
 
 Chart-native reference (auto-generated from `values.yaml` via `helm-docs`):
 
-- Umbrella: [`charts/openldap-stack/README.md`](charts/openldap-stack/README.md)
-- Subchart `openldap`: [`charts/openldap-stack/charts/openldap/README.md`](charts/openldap-stack/charts/openldap/README.md)
-- Subchart `phpldapadmin`: [`charts/openldap-stack/charts/phpldapadmin/README.md`](charts/openldap-stack/charts/phpldapadmin/README.md)
-- Subchart `self-service-password`: [`charts/openldap-stack/charts/self-service-password/README.md`](charts/openldap-stack/charts/self-service-password/README.md)
+- Umbrella: [`charts/openldap-platform/README.md`](charts/openldap-platform/README.md)
+- Subchart `openldap`: [`charts/openldap-platform/charts/openldap/README.md`](charts/openldap-platform/charts/openldap/README.md)
+- Subchart `phpldapadmin`: [`charts/openldap-platform/charts/phpldapadmin/README.md`](charts/openldap-platform/charts/phpldapadmin/README.md)
+- Subchart `self-service-password`: [`charts/openldap-platform/charts/self-service-password/README.md`](charts/openldap-platform/charts/self-service-password/README.md)
 
 Regenerate the auto-docs: `cd kubernetes && make docs` (checked in CI via `make docs-check`).

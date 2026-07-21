@@ -113,9 +113,9 @@ data:
         | kubectl label -f - --local -o yaml \
             "app.kubernetes.io/managed-by=Helm" \
             "app.kubernetes.io/component=user-credentials" \
-            "app.kubernetes.io/part-of=openldap-stack" \
-            "openldap.stack/release=${RELEASE_NAME}" \
-            "openldap.stack/user=${uid}" \
+            "app.kubernetes.io/part-of=openldap-platform" \
+            "openldap.platform/release=${RELEASE_NAME}" \
+            "openldap.platform/user=${uid}" \
         | kubectl apply -f - >/dev/null
     }
 
@@ -161,8 +161,8 @@ data:
           --overwrite \
           "app.kubernetes.io/managed-by=Helm" \
           "app.kubernetes.io/component=sync-state" \
-          "app.kubernetes.io/part-of=openldap-stack" \
-          "openldap.stack/release=${RELEASE_NAME}" >/dev/null
+          "app.kubernetes.io/part-of=openldap-platform" \
+          "openldap.platform/release=${RELEASE_NAME}" >/dev/null
       else
         kubectl -n "${RELEASE_NAMESPACE}" patch configmap "${STATE_CM_NAME}" \
           --type=merge -p "$(jq -n --arg k "$1" --rawfile v "$2" '{data:{($k):$v}}')" >/dev/null
@@ -288,12 +288,12 @@ data:
       i=$((i + 1))
     done
 
-    # Drift: any user with the label openldap.stack/release=${RELEASE_NAME}
+    # Drift: any user with the label openldap.platform/release=${RELEASE_NAME}
     # (i.e. previously created by this chart) that is no longer declared →
     # delete or lock per onUserRemove.
     LOG "checking drift — onUserRemove=${ON_USER_REMOVE}"
     KNOWN=$(kubectl -n "${RELEASE_NAMESPACE}" get secrets \
-              -l "openldap.stack/release=${RELEASE_NAME},app.kubernetes.io/component=user-credentials" \
+              -l "openldap.platform/release=${RELEASE_NAME},app.kubernetes.io/component=user-credentials" \
               -o jsonpath='{range .items[*]}{.metadata.labels.openldap\.stack/user}{"\n"}{end}' \
               2>/dev/null | sort -u)
     for uid in $KNOWN; do

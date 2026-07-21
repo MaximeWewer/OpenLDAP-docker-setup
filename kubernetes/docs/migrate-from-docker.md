@@ -66,7 +66,7 @@ Start with a values file that intentionally OMITS `openldap.users` /
 Jobs to fight the import:
 
 ```bash
-helm upgrade --install ldap kubernetes/charts/openldap-stack \
+helm upgrade --install ldap kubernetes/charts/openldap-platform \
   --namespace ldap --create-namespace \
   -f migrated-values.yaml
 ```

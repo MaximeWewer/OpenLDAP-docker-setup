@@ -1,7 +1,7 @@
 # -*- mode: ruby -*-
 # vi: set ft=ruby :
 #
-# Cross-cluster HA test rig for the openldap-stack Helm chart.
+# Cross-cluster HA test rig for the openldap-platform Helm chart.
 # Two Ubuntu 26.04 VMs, each running a single-node minikube. The chart is
 # installed on both with distinct serverIdBase + external peers pointing
 # at the other VM's NodePort exposing LDAPS.

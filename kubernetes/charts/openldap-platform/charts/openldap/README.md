@@ -5,7 +5,7 @@ suffix/OU/admin bootstrap, and hooks for downstream sync jobs backed by
 openldap-cli.
 
 This subchart is normally installed via the umbrella
-[`openldap-stack`](../..). Install it standalone only if you don't need
+[`openldap-platform`](../..). Install it standalone only if you don't need
 phpLDAPadmin or Self Service Password sitting next to slapd.
 
 ## Requirements
