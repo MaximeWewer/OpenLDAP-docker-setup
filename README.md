@@ -1,6 +1,6 @@
 # OpenLDAP platform
 
-Production-oriented **OpenLDAP 2.6** deployment recipes, packaged per target
+Production-oriented **OpenLDAP** deployment recipes, packaged per target
 platform. Same directory tree, same overlays, same companion CLI — pick the
 runtime that matches your infrastructure.
 
@@ -19,7 +19,7 @@ refint, ppolicy, dynlist, accesslog, syncprov) and the same
 
 Behaviours common to both platforms:
 
-- OpenLDAP 2.6 on the minimal [cleanstart/openldap](https://hub.docker.com/r/cleanstart/openldap) image
+- OpenLDAP on the minimal [cleanstart/openldap](https://hub.docker.com/r/cleanstart/openldap) image
 - Delta-syncrepl HA (accesslog + syncprov)
 - Least-privilege ACLs per OU, SSHA-hashed passwords, TLS/LDAPS
 - Idempotent bootstrap + cert renewal (Docker: cron; Kubernetes: CronJob)
