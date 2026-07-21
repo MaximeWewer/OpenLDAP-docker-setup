@@ -82,19 +82,19 @@ GitOps + cross-cluster HA: [`kubernetes/gitops/`](kubernetes/gitops/) and
 
 ```
 openldap-platform/
-├── docker/                      # Docker Compose recipes (standalone + 2 HA modes)
-│   ├── README.md                # comprehensive per-mode ops handbook
-│   ├── base-ldifs/              # shared bootstrap LDIFs (OUs, admin, policies)
-│   ├── standalone/              # 1 slapd container
-│   ├── ha-active-passive/       # 2 masters (MirrorMode) + consumers + HAProxy
-│   └── ha-active-active/        # N masters (multi-master) + HAProxy
-└── kubernetes/                  # Helm chart + operator handbook + test rig
-    ├── README.md                # feature-complete chart overview
-    ├── Makefile                 # docs / docs-check / lint / dep-update
+├── docker/                         # Docker Compose recipes (standalone + 2 HA modes)
+│   ├── README.md                   # comprehensive per-mode ops handbook
+│   ├── base-ldifs/                 # shared bootstrap LDIFs (OUs, admin, policies)
+│   ├── standalone/                 # 1 slapd container
+│   ├── ha-active-passive/          # 2 masters (MirrorMode) + consumers + HAProxy
+│   └── ha-active-active/           # N masters (multi-master) + HAProxy
+└── kubernetes/                     # Helm chart + operator handbook + test rig
+    ├── README.md                   # feature-complete chart overview
+    ├── Makefile                    # docs / docs-check / lint / dep-update
     ├── charts/openldap-platform/   # umbrella (openldap + phpldapadmin + SSP)
-    ├── docs/                    # operator handbook (recipes, troubleshooting, cross-cluster, scaling, …)
-    ├── gitops/                  # Argo CD + Flux reference manifests
-    └── tests/cross-cluster/     # 2-VM Vagrant + minikube rig for cross-cluster HA
+    ├── docs/                       # operator handbook (recipes, troubleshooting, cross-cluster, scaling, …)
+    ├── gitops/                     # Argo CD + Flux reference manifests
+    └── tests/cross-cluster/        # 2-VM Vagrant + minikube rig for cross-cluster HA
 ```
 
 ## License
